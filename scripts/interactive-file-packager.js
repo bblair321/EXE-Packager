@@ -51,19 +51,11 @@ class InteractiveFilePackager {
 
     this.config.appName = await this.question("Package name: ", "MyPackage");
     this.config.version = await this.question(
-      "Version (default: 1.0.0): ",
+      "Version (default: 1.0.0, or press Enter to skip): ",
       "1.0.0"
     );
-    this.config.outputDir = await this.question(
-      "Output directory (default: ./dist): ",
-      "./dist"
-    );
-
-    const includeVersion = await this.question(
-      "Include version in filename? (y/n, default: y): ",
-      "y"
-    );
-    this.config.includeVersion = includeVersion.toLowerCase().startsWith("y");
+    this.config.outputDir = "./dist"; // Always use ./dist
+    this.config.includeVersion = true; // Always include version
 
     this.config.outputName = await this.question(
       "Output executable name: ",
@@ -74,77 +66,26 @@ class InteractiveFilePackager {
   }
 
   async getFilesAndFolders() {
-    console.log("📁 Files and Folders to Include");
-    console.log("===============================");
+    console.log("📁 Mod Folder to Package");
+    console.log("=========================");
     console.log("");
-    console.log("You can include individual files, entire folders, or both.");
-    console.log("Examples:");
-    console.log("  Files: config.json, readme.txt, license.txt");
-    console.log("  Folders: assets, data, templates, config");
+    console.log("Enter the path to your mod folder. Everything in this folder will be packaged.");
+    console.log("Example: ./my-mod or C:\\Users\\You\\mods\\my-mod");
     console.log("");
 
-    // Get individual files
-    console.log("🗂️  Individual Files");
-    console.log(
-      "Enter individual files to include (one per line, press Enter twice when done):"
-    );
-    console.log("Examples: ./config.json, ./readme.txt, ./license.txt");
+    const modFolder = await this.question("Mod folder path: ");
 
-    const files = [];
-    let input;
+    if (!modFolder.trim()) {
+      throw new Error("Mod folder path is required.");
+    }
 
-    do {
-      input = await this.question("File path (or press Enter to finish): ");
-      if (input.trim()) {
-        // Check if file exists
-        if (fs.existsSync(input.trim())) {
-          files.push(input.trim());
-          console.log(`✅ Added file: ${input.trim()}`);
-        } else {
-          console.log(
-            `⚠️  File not found: ${input.trim()} (will be added anyway)`
-          );
-          files.push(input.trim());
-        }
-      }
-    } while (input.trim());
-
-    this.config.files = files;
-
-    // Get folders
-    console.log("");
-    console.log("📂 Folders");
-    console.log(
-      "Enter folders to include (one per line, press Enter twice when done):"
-    );
-    console.log("Examples: ./assets, ./data, ./templates");
-
-    const folders = [];
-
-    do {
-      input = await this.question("Folder path (or press Enter to finish): ");
-      if (input.trim()) {
-        // Check if folder exists
-        if (
-          fs.existsSync(input.trim()) &&
-          fs.statSync(input.trim()).isDirectory()
-        ) {
-          folders.push(input.trim());
-          console.log(`✅ Added folder: ${input.trim()}`);
-        } else {
-          console.log(
-            `⚠️  Folder not found: ${input.trim()} (will be added anyway)`
-          );
-          folders.push(input.trim());
-        }
-      }
-    } while (input.trim());
-
-    this.config.folders = folders;
-
-    // Validate that we have something to package
-    if (files.length === 0 && folders.length === 0) {
-      throw new Error("No files or folders specified. Nothing to package.");
+    // Check if folder exists
+    if (fs.existsSync(modFolder.trim()) && fs.statSync(modFolder.trim()).isDirectory()) {
+      this.config.folders = [modFolder.trim()];
+      this.config.files = [];
+      console.log(`✅ Mod folder: ${modFolder.trim()}`);
+    } else {
+      throw new Error(`Folder not found: ${modFolder.trim()}`);
     }
 
     console.log("");
@@ -155,23 +96,11 @@ class InteractiveFilePackager {
     console.log("===================");
     console.log(`Package Name: ${this.config.appName}`);
     console.log(`Version: ${this.config.version}`);
-    console.log(`Output Directory: ${this.config.outputDir}`);
-    console.log(
-      `Include Version: ${this.config.includeVersion ? "Yes" : "No"}`
-    );
     console.log(`Output Name: ${this.config.outputName}`);
     console.log("");
 
-    if (this.config.files.length > 0) {
-      console.log("Files to include:");
-      this.config.files.forEach((file) => {
-        console.log(`  📄 ${file}`);
-      });
-      console.log("");
-    }
-
     if (this.config.folders.length > 0) {
-      console.log("Folders to include:");
+      console.log("Mod folder to package:");
       this.config.folders.forEach((folder) => {
         console.log(`  📁 ${folder}`);
       });
@@ -197,17 +126,11 @@ class InteractiveFilePackager {
       // Create the command arguments for pack-files.js
       const commandArgs = [];
 
-      // Add files
-      this.config.files.forEach((file) => {
-        commandArgs.push("--files");
-        commandArgs.push(file);
-      });
-
-      // Add folders
-      this.config.folders.forEach((folder) => {
-        commandArgs.push("--folders");
-        commandArgs.push(folder);
-      });
+      // Add mod folder (simplified option)
+      if (this.config.folders.length > 0) {
+        commandArgs.push("--folder");
+        commandArgs.push(this.config.folders[0]);
+      }
 
       // Add other options
       if (this.config.outputName) {
@@ -259,17 +182,16 @@ class InteractiveFilePackager {
 
         if (code === 0) {
           console.log("");
-          console.log("✅ File packaging completed successfully!");
+          console.log("✅ Single-file installer created successfully!");
           console.log(
-            `📁 Check the ${this.config.outputDir} folder for your self-extracting executable.`
+            `📁 Check the ${this.config.outputDir} folder for your installer.`
           );
           console.log("");
-          console.log("🎯 How users will use it:");
+          console.log("🎯 The installer is a single .exe file with everything embedded!");
+          console.log("How users will use it:");
           console.log("1. Run the .exe file");
           console.log("2. Choose where to extract the files");
-          console.log(
-            "3. All files will be extracted to their chosen directory"
-          );
+          console.log("3. All files will be extracted to their chosen directory");
         } else {
           console.log("");
           console.log(`❌ File packaging failed with exit code ${code}`);

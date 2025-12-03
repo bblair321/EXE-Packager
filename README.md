@@ -4,10 +4,13 @@ A comprehensive tool for creating self-extracting executables and application pa
 
 ## 🎯 **What This Tool Does**
 
-### **1. Self-Extracting Archives (File Packager)**
+### **1. Universal Single-File Installer**
 
-- Package loose files and folders into self-extracting executables
+- Package any folder into a single executable installer
+- Everything is embedded - just one .exe file to distribute
 - Users get a UI dialog to choose installation directory
+- Works for games, applications, mods, or any file distribution
+- Configurable for any game or application
 
 ### **2. Application Packaging (App Packager)**
 
@@ -16,14 +19,29 @@ A comprehensive tool for creating self-extracting executables and application pa
 
 ## 🚀 **Quick Start**
 
-### **For Loose Files (Self-Extracting Archives):**
+### **GUI Application (Recommended - Easiest!)**
 
 ```powershell
-# Interactive mode
-.\scripts\interactive-file-packager.ps1
+# Start the GUI application
+.\start-gui.ps1
 
-# Command line mode
-.\scripts\pack-files.ps1 -Folders "mods" -AppName "MyModPack"
+# Or use npm
+npm run gui
+```
+
+**Just 3 steps:**
+1. Click "Browse" and select your folder
+2. Enter app name and output name
+3. Click "Create Installer"
+
+### **Command Line Mode:**
+
+```powershell
+# Simple command line
+.\scripts\pack-files.ps1 -Folder "my-mod" -OutputName "MyMod"
+
+# With version
+.\scripts\pack-files.ps1 -Folder "my-mod" -AppName "MyMod" -Version "1.0.0"
 ```
 
 ### **For Applications:**
@@ -38,9 +56,12 @@ A comprehensive tool for creating self-extracting executables and application pa
 
 ## ✅ **Features**
 
+- **🎨 Modern GUI Application** - Beautiful, easy-to-use graphical interface
+- **Single-File Distribution** - One .exe file with everything embedded
+- **Simple Creation** - Just point to a folder and get an installer
 - **User-Friendly UI** - Interactive dialogs for directory selection
-- **Professional Output** - Clean, branded executables
-- **Cross-Platform** - Works on Windows, macOS, Linux
+- **Auto-Detect Paths** - Configurable path detection for any game or application
+- **Universal Support** - Works with any game, application, or file distribution
 - **Large File Support** - Handles multi-GB archives without issues
 - **Smart Fallbacks** - Always works, even with user errors
 - **Version Support** - Automatic versioning in filenames

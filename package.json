@@ -7,7 +7,9 @@
     "test": "echo \"No tests specified\" && exit 0",
     "install-tools": "npm install -g pkg electron-builder",
     "example:node": "node scripts/package-exe.js node --help",
-    "example:files": "node scripts/pack-files.js --help"
+    "example:files": "node scripts/pack-files.js --help",
+    "gui": "electron gui/main.js",
+    "gui:dev": "NODE_ENV=development electron gui/main.js"
   },
   "keywords": [
     "executable",
@@ -24,6 +26,7 @@
     "adm-zip": "^0.5.16",
     "archiver": "^6.0.1",
     "cli-progress": "^3.12.0",
+    "electron": "^28.0.0",
     "ora": "^9.0.0",
     "yauzl": "^2.10.0"
   },

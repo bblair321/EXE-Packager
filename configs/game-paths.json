@@ -1,0 +1,38 @@
+{
+  "description": "Universal game path configuration. Add your own games here.",
+  "steam": {
+    "commonPath": "C:\\Program Files (x86)\\Steam\\steamapps\\common",
+    "commonPathAlt": "C:\\Program Files\\Steam\\steamapps\\common",
+    "games": {
+      "Escape from Tarkov": "%USERPROFILE%\\AppData\\Local\\Battlestate Games\\EscapeFromTarkov",
+      "Valheim": "%USERPROFILE%\\AppData\\LocalLow\\IronGate\\Valheim",
+      "Rust": "%USERPROFILE%\\AppData\\Local\\Rust"
+    }
+  },
+  "epic": {
+    "commonPath": "C:\\Program Files (x86)\\Epic Games",
+    "commonPathAlt": "C:\\Program Files\\Epic Games",
+    "games": {
+      "Fortnite": "%USERPROFILE%\\AppData\\Local\\FortniteGame\\Saved",
+      "Rocket League": "%USERPROFILE%\\Documents\\My Games\\Rocket League\\TAGame"
+    }
+  },
+  "gog": {
+    "commonPath": "C:\\Program Files (x86)\\GOG Galaxy\\Games",
+    "commonPathAlt": "C:\\GOG Games"
+  },
+  "custom": {
+    "description": "Add custom game paths here. Use %USERPROFILE% for user home directory.",
+    "games": {}
+  },
+  "commonLocations": [
+    "%USERPROFILE%\\Desktop",
+    "C:\\Program Files (x86)\\Steam\\steamapps\\common",
+    "C:\\Program Files\\Steam\\steamapps\\common",
+    "C:\\Program Files (x86)\\Epic Games",
+    "C:\\Program Files\\Epic Games",
+    "C:\\Games",
+    "%USERPROFILE%\\Documents\\My Games"
+  ]
+}
+

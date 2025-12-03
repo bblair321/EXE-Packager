@@ -1,45 +1,38 @@
-# File Packing Script - Self-Extracting Executables
+# Universal Single-File Installer Creator
 
-This script creates self-extracting executables that act like installers. When users run the `.exe` file, they can choose where to extract the packed files.
+This script creates a single executable installer with everything embedded. When users run the `.exe` file, they can choose where to extract the files. **No separate files needed - everything is in one .exe!**
+
+Works for games, applications, mods, or any file distribution - completely universal!
 
 ## 🎯 How It Works
 
-1. **Pack**: You specify files/folders to include
-2. **Create**: Script creates a ZIP archive and embeds it in an executable
+1. **Pack**: You specify a mod folder to package
+2. **Create**: Script creates a ZIP archive and embeds it directly in the executable (base64 encoded)
 3. **Extract**: Users run the `.exe`, choose a directory, and files are extracted there
 
 ## 📋 Usage Examples
 
-### PowerShell Usage (Recommended)
+### Simple Usage (Recommended)
 
 ```powershell
-# Pack specific files
-.\pack-files.ps1 -Files "config.json" -Files "readme.txt" -OutputName "MyPackage"
+# Pack a mod folder - simplest way!
+.\pack-files.ps1 -Folder "my-mod" -OutputName "MyMod"
 
-# Pack folders
-.\pack-files.ps1 -Folders "assets" -Folders "data" -OutputName "GameFiles"
+# With version and app name
+.\pack-files.ps1 -Folder "./mods/my-mod" -AppName "MyMod" -Version "1.0.0"
 
-# Pack both files and folders
-.\pack-files.ps1 -Files "config.json" -Folders "assets" -OutputName "MyApp"
-
-# Use configuration file
-.\pack-files.ps1 -Config "pack-config.json"
-
-# Custom app name and version
-.\pack-files.ps1 -Files "config.json" -AppName "MyApp" -Version "2.0.0" -OutputName "MyApp"
+# Interactive mode (easiest)
+.\scripts\interactive-file-packager.ps1
 ```
 
 ### Direct Node.js Usage
 
 ```bash
-# Pack specific files
-node pack-files.js --files "./config.json" --files "./readme.txt" --output-name "MyPackage"
+# Pack a mod folder
+node scripts/pack-files.js --folder "./my-mod" --output-name "MyMod"
 
-# Pack folders
-node pack-files.js --folders "./assets" --folders "./data" --output-name "GameFiles"
-
-# Use configuration file
-node pack-files.js --config ./pack-config.json
+# With version
+node scripts/pack-files.js --folder "./my-mod" --app-name "MyMod" --version "1.0.0"
 ```
 
 ## 🔧 Configuration File
@@ -69,22 +62,23 @@ Create a `pack-config.json` file:
 
 ### Game Mod Package
 ```powershell
-.\pack-files.ps1 -Folders "mods" -Folders "textures" -Files "install.txt" -AppName "GameMod" -OutputName "GameMod-v1.2"
+.\pack-files.ps1 -Folder "my-mod" -AppName "GameMod" -OutputName "GameMod-v1.2"
 ```
 
-### Configuration Package
+### Application Package
 ```powershell
-.\pack-files.ps1 -Files "config.ini" -Files "settings.json" -AppName "AppConfig" -OutputName "AppConfig"
+.\pack-files.ps1 -Folder "./my-app" -AppName "MyApplication" -OutputName "MyApp-Installer"
 ```
 
-### Complete Application Package
+### Complete Package
 ```powershell
-.\pack-files.ps1 -Folders "bin" -Folders "lib" -Folders "config" -Files "README.md" -AppName "MyApp" -Version "1.0.0"
+# Everything in the folder gets packaged
+.\pack-files.ps1 -Folder "./my-package" -AppName "MyPackage" -Version "1.0.0"
 ```
 
 ## 📦 What Users Experience
 
-1. **Download** your `.exe` file
+1. **Download** your single `.exe` file (no other files needed!)
 2. **Run** the executable
 3. **Choose** where to extract files (folder picker dialog)
 4. **Files are extracted** to their chosen location
@@ -93,9 +87,9 @@ Create a `pack-config.json` file:
 ## 🔍 Output
 
 The script creates:
-- **Self-extracting executable** in `./dist/` folder
+- **Single executable installer** in `./dist/` folder
+- **Everything embedded** - archive is base64 encoded inside the .exe
 - **Version number** included in filename (e.g., `MyApp-1.0.0.exe`)
-- **Embedded ZIP archive** containing all your files
 - **User-friendly extraction** interface
 
 ## 💡 Perfect For
@@ -108,19 +102,32 @@ The script creates:
 
 ## 🚀 For Your Projects
 
-### SCUM Server Manager
+### Game Mod Installer
 ```powershell
-.\pack-files.ps1 -Folders "config" -Files "README.md" -AppName "SCUMConfig" -OutputName "SCUM-Server-Config"
+.\pack-files.ps1 -Folder "my-mod" -AppName "MyMod" -OutputName "MyMod-v1.0"
 ```
 
-### FiveM Resources
+### Application Installer
 ```powershell
-.\pack-files.ps1 -Folders "client" -Folders "server" -Folders "html" -Files "fxmanifest.lua" -AppName "FiveMResource"
+.\pack-files.ps1 -Folder "./my-app" -AppName "MyApp" -Version "1.0.0"
 ```
 
-### Tarkov Day Trader Assets
+### Complete Package
 ```powershell
-.\pack-files.ps1 -Folders "assets" -Files "README.md" -AppName "TarkovAssets" -OutputName "Tarkov-Day-Trader-Assets"
+# Everything in the folder gets packaged into a single installer
+.\pack-files.ps1 -Folder "./my-package" -AppName "MyPackage"
 ```
 
-The generated executable will be completely self-contained - users don't need any additional software to extract your files!
+### Custom Game Support
+Add your own games to `configs/game-paths.json` for auto-detection:
+```json
+{
+  "custom": {
+    "games": {
+      "My Custom Game": "C:\\Games\\MyGame"
+    }
+  }
+}
+```
+
+The generated executable is a **true single file** - everything is embedded inside! Users just need to run the .exe file. No separate ZIP files, no dependencies, just one file to distribute!

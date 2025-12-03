@@ -25,23 +25,53 @@ try {
   cliProgress = null;
 }
 
-// Make ora optional for compatibility
-let ora;
+// Make ora optional for compatibility - with proper fallback
+let oraModule;
 try {
-  const oraModule = require("ora");
-  ora = oraModule.default || oraModule;
+  oraModule = require("ora");
 } catch (error) {
-  // ora not available, use simple console logging instead
-  ora = {
-    start: (text) => {
-      console.log(text);
-      return {
-        succeed: (msg) => console.log(msg),
-        fail: (msg) => console.log(msg),
-      };
-    },
-  };
+  oraModule = null;
 }
+
+// Safe ora wrapper that always works
+const ora = function(text) {
+  // Return an object that mimics ora's spinner interface
+  const spinnerObj = {
+    succeed: (msg) => {
+      console.log(msg || '✅');
+      return spinnerObj;
+    },
+    fail: (msg) => {
+      console.log(msg || '❌');
+      return spinnerObj;
+    },
+    start: function(msg) {
+      console.log(msg || text || 'Starting...');
+      return spinnerObj;
+    },
+    stop: () => {},
+    update: () => {}
+  };
+
+  // Try to use real ora if available
+  if (oraModule) {
+    try {
+      const oraFunction = oraModule.default || oraModule;
+      if (typeof oraFunction === 'function') {
+        const realSpinner = oraFunction(text);
+        if (realSpinner && typeof realSpinner.start === 'function') {
+          return realSpinner;
+        }
+      }
+    } catch (error) {
+      // Fall through to console-based spinner
+    }
+  }
+
+  // Return console-based spinner
+  console.log(text || 'Loading...');
+  return spinnerObj;
+};
 
 class FilePacker {
   constructor(config = {}) {
@@ -50,8 +80,39 @@ class FilePacker {
       version: "1.0.0",
       appName: "MyPackage",
       includeVersion: true,
+      silentMode: false,
+      defaultExtractPath: null,
+      // Universal installer messages (can be customized)
+      messages: {
+        title: "File Extractor",
+        selectDirectory: "Please select the folder where you want to extract the files.",
+        directoryPlaceholder: "Enter the full path to your installation directory...",
+        commonDirectories: "Common installation directories:",
+        desktopWarning: "Using Desktop is not recommended. Files should be extracted to the correct application directory.",
+        extractionComplete: "Extraction completed!",
+        extractionFailed: "Extraction failed!",
+        ...config.messages
+      },
       ...config,
     };
+  }
+
+  /**
+   * Pack files into a self-extracting executable (for launcher integration)
+   */
+  async packFilesSilent(files, folders, outputName, extractPath = null) {
+    const config = {
+      ...this.config,
+      silentMode: true,
+      defaultExtractPath: extractPath,
+    };
+
+    return await this.packFiles({
+      files,
+      folders,
+      outputName,
+      config,
+    });
   }
 
   /**
@@ -75,33 +136,108 @@ class FilePacker {
 
     // Create archive of all files
     const archivePath = path.join(tempDir, "files.zip");
+    console.log("📦 Creating archive...");
+    console.log("Files:", files.length);
+    console.log("Folders:", folders.length);
     await this.createArchive(files, folders, archivePath);
+
+    // Verify archive was created and has content
+    if (!fs.existsSync(archivePath)) {
+      throw new Error('Archive file was not created!');
+    }
+    const archiveStats = fs.statSync(archivePath);
+    console.log("📦 Archive created, size:", archiveStats.size, "bytes");
+    
+    if (archiveStats.size === 0) {
+      console.warn("⚠️  WARNING: Archive is empty! No files were added.");
+    }
 
     // Package the extractor with pkg
     const outputFileName = outputName || this.generateOutputName();
 
-    // Create the extractor executable
-    const archiveFileName = `${path.parse(outputFileName).name}_archive.zip`;
-    const extractorCode = this.generateExtractor(archivePath, archiveFileName);
+    // Read and base64 encode the archive to embed it
+    console.log("🔐 Encoding archive for embedding...");
+    const archiveBuffer = fs.readFileSync(archivePath);
+    const archiveBase64 = archiveBuffer.toString("base64");
+    const archiveSize = archiveBuffer.length;
+    
+    console.log("📦 Archive encoded, base64 length:", archiveBase64.length);
+    console.log("📦 Archive size:", archiveSize, "bytes");
+
+    // Create the extractor executable with embedded archive
+    const extractorCode = this.generateExtractor(archiveBase64, archiveSize);
     const extractorPath = path.join(tempDir, "extractor.js");
+    
+    // Verify the replacement worked before writing
+    if (extractorCode.includes('{{ARCHIVE_BASE64}}')) {
+      console.error('❌ CRITICAL ERROR: Archive placeholder still in extractor code!');
+      console.error('This means the replacement failed. Cannot create installer.');
+      throw new Error('Archive placeholder replacement failed in extractor code');
+    }
+    
+    // Verify archive data is actually in the code (check first 50 chars of base64)
+    if (archiveBase64 && archiveBase64.length > 0) {
+      const archivePrefix = archiveBase64.substring(0, 50);
+      if (!extractorCode.includes(archivePrefix)) {
+        console.error('❌ CRITICAL ERROR: Archive data not found in extractor code!');
+        console.error('Archive prefix:', archivePrefix);
+        throw new Error('Archive data not embedded in extractor code');
+      } else {
+        console.log('✅ Verified: Archive data is present in extractor code');
+      }
+    }
+    
     fs.writeFileSync(extractorPath, extractorCode);
+    console.log('✅ Extractor code written to:', extractorPath);
+    
+    // Double-check the written file to ensure replacement persisted
+    const writtenContent = fs.readFileSync(extractorPath, 'utf8');
+    const placeholderPos = writtenContent.indexOf('{{ARCHIVE_BASE64}}');
+    if (placeholderPos !== -1) {
+      console.error('❌ CRITICAL: Placeholder still in written file at position:', placeholderPos);
+      console.error('Context around placeholder:', writtenContent.substring(Math.max(0, placeholderPos - 100), placeholderPos + 150));
+      throw new Error('Placeholder replacement did not persist in extractor.js file');
+    }
+    if (archiveBase64 && archiveBase64.length > 0) {
+      const archivePrefix = archiveBase64.substring(0, 50);
+      const archivePos = writtenContent.indexOf(archivePrefix);
+      if (archivePos === -1) {
+        console.error('❌ CRITICAL: Archive data not found in written file!');
+        console.error('Looking for:', archivePrefix);
+        console.error('First 200 chars of file:', writtenContent.substring(0, 200));
+        throw new Error('Archive data not found in extractor.js file');
+      } else {
+        console.log('✅ Verified: Archive data found in written file at position:', archivePos);
+      }
+    }
+    console.log('✅ Verified: Written file contains replaced archive data');
+    
+    // Create package.json in temp directory to ensure console window is shown
+    const packageJsonPath = path.join(tempDir, "package.json");
+    fs.writeFileSync(packageJsonPath, JSON.stringify({
+      name: "installer",
+      version: "1.0.0",
+      main: "extractor.js",
+      bin: "extractor.js",
+      pkg: {
+        scripts: [],
+        assets: [],
+        outputPath: path.resolve(this.config.outputDir, outputName),
+        // Explicitly exclude the template file to prevent pkg from bundling it
+        // Only bundle extractor.js, nothing else
+        targets: ["node18-win-x64"]
+      }
+    }, null, 2));
     await this.createExtractorExecutable(
       extractorPath,
-      outputFileName,
-      archivePath
+      outputFileName
     );
-
-    // Copy the archive file to the output directory alongside the executable
-    const finalArchivePath = path.join(
-      this.config.outputDir,
-      `${path.parse(outputFileName).name}_archive.zip`
-    );
-    fs.copyFileSync(archivePath, finalArchivePath);
 
     // Cleanup temp directory
     this.cleanup(tempDir);
 
-    console.log(`✅ Created self-extracting package: ${outputFileName}`);
+    console.log(`✅ Created single-file installer: ${outputFileName}.exe`);
+    console.log(`📦 Archive embedded: ${(archiveSize / 1024 / 1024).toFixed(2)} MB`);
   }
 
   /**
@@ -190,7 +326,10 @@ class FilePacker {
       folders.forEach((folder) => {
         if (fs.existsSync(folder)) {
           const folderName = path.basename(folder);
+          console.log('Adding folder to archive:', folder, 'as', folderName);
           archive.directory(folder, folderName);
+        } else {
+          console.warn('Folder does not exist:', folder);
         }
       });
 
@@ -218,726 +357,126 @@ class FilePacker {
   }
 
   /**
-   * Generate the extractor Node.js code
+   * Generate the extractor Node.js code with embedded archive
    */
-  generateExtractor(archivePath, archiveFileName) {
-    return `
-const fs = require('fs');
-const path = require('path');
-const os = require('os');
-const { execSync } = require('child_process');
-// Make dependencies optional for pkg bundling
-let cliProgress, ora;
-
-try {
-  cliProgress = require('cli-progress');
-} catch (error) {
-  cliProgress = null;
-}
-
-try {
-  const oraModule = require('ora');
-  ora = oraModule.default || oraModule;
-} catch (error) {
-  // ora not available, use simple console logging instead
-  ora = {
-    start: (text) => ({ text, succeed: (msg) => console.log(msg), fail: (msg) => console.log(msg) })
-  };
-}
-
-// Look for the archive file alongside the executable
-const archiveFileName = '${archiveFileName}';
-
-function showMessage(message) {
-  console.log('\\n' + '='.repeat(50));
-  console.log(message);
-  console.log('='.repeat(50));
-}
-
-function formatBytes(bytes) {
-  if (bytes === 0) return '0 Bytes';
-  const k = 1024;
-  const sizes = ['Bytes', 'KB', 'MB', 'GB', 'TB'];
-  const i = Math.floor(Math.log(bytes) / Math.log(k));
-  return parseFloat((bytes / Math.pow(k, i)).toFixed(2)) + ' ' + sizes[i];
-}
-
-function selectDirectory() {
-  console.log('\\n📁 File Extractor');
-  console.log('==================');
-  
-  try {
-    console.log('\\n🖱️  Opening folder selection dialog...');
-    
-    // Try to use a native GUI dialog first
-    const guiResult = showNativeFolderDialog();
-    if (guiResult) {
-      console.log(\`\\n✅ Selected directory: \${guiResult}\`);
-      return guiResult;
-    }
-    
-    // Fallback to batch file approach
-    console.log('\\n📂 Falling back to text input dialog...');
-    return getInteractiveInput();
-    
-  } catch (error) {
-    console.log(\`\\n⚠️  GUI dialog failed: \${error.message}\`);
-    console.log('\\n📂 Falling back to text input dialog...');
-    return getInteractiveInput();
+  generateExtractor(archiveBase64, archiveSize) {
+    // Use GUI installer by default
+    return this.generateGUIExtractor(archiveBase64, archiveSize);
   }
-}
 
-function showNativeFolderDialog() {
-  // Create a simple HTML-based dialog using Windows' built-in capabilities
-  const dialogScript = \`
-<!DOCTYPE html>
-<html>
-<head>
-    <title>Select Installation Directory</title>
-    <style>
-        body { font-family: Arial, sans-serif; padding: 20px; background: #f0f0f0; }
-        .container { background: white; padding: 30px; border-radius: 10px; box-shadow: 0 2px 10px rgba(0,0,0,0.1); max-width: 600px; margin: 0 auto; }
-        h1 { color: #333; text-align: center; margin-bottom: 20px; }
-        .info { background: #e7f3ff; padding: 15px; border-radius: 5px; margin: 20px 0; border-left: 4px solid #2196F3; }
-        .warning { background: #fff3cd; padding: 15px; border-radius: 5px; margin: 20px 0; border-left: 4px solid #ffc107; }
-        .path-input { width: 100%; padding: 10px; border: 2px solid #ddd; border-radius: 5px; font-size: 14px; margin: 10px 0; }
-        .btn { background: #4CAF50; color: white; padding: 12px 24px; border: none; border-radius: 5px; cursor: pointer; font-size: 16px; margin: 10px 5px; }
-        .btn:hover { background: #45a049; }
-        .btn-secondary { background: #6c757d; }
-        .btn-secondary:hover { background: #5a6268; }
-        .examples { background: #f8f9fa; padding: 15px; border-radius: 5px; margin: 15px 0; }
-        .examples code { background: #e9ecef; padding: 2px 6px; border-radius: 3px; font-family: monospace; }
-    </style>
-</head>
-<body>
-    <div class="container">
-        <h1>📁 Select Installation Directory</h1>
-        
-        <div class="info">
-            <strong>IMPORTANT:</strong> Please select the folder where you want to install the mod files.
-            For BepInEx mods, this should be your game's <code>BepInEx/plugins</code> folder.
-        </div>
-        
-        <div class="examples">
-            <strong>Common game directories:</strong><br>
-            <code>C:\\Program Files (x86)\\Steam\\steamapps\\common\\[GameName]\\BepInEx\\plugins</code><br>
-            <code>C:\\Program Files\\Steam\\steamapps\\common\\[GameName]\\BepInEx\\plugins</code><br>
-            <code>C:\\Program Files (x86)\\Epic Games\\[GameName]\\BepInEx\\plugins</code><br>
-            <code>D:\\Games\\[GameName]\\BepInEx\\plugins</code>
-        </div>
-        
-        <input type="text" id="pathInput" class="path-input" placeholder="Enter the full path to your game's BepInEx/plugins folder...">
-        
-        <div style="text-align: center;">
-            <button class="btn" onclick="selectPath()">📁 Browse for Folder</button>
-            <button class="btn btn-secondary" onclick="useDefault()">Use Desktop</button>
-        </div>
-        
-        <div class="warning">
-            <strong>Note:</strong> Using Desktop is not recommended for game mods. The mod may not work correctly.
-        </div>
-    </div>
+  generateGUIExtractor(archiveBase64, archiveSize) {
+    // Load the GUI template and substitute values
+    const templatePath = path.resolve(__dirname, '..', 'installer-gui-template.js');
+    let template;
     
-    <script>
-        // Set default path
-        document.getElementById('pathInput').value = 'C:\\\\Users\\\\' + (process.env.USERNAME || 'User') + '\\\\Desktop';
-        
-        function selectPath() {
-            const { dialog } = require('electron');
-            const selectedPath = dialog.showOpenDialogSync({
-                title: 'Select Installation Directory',
-                properties: ['openDirectory', 'createDirectory'],
-                defaultPath: document.getElementById('pathInput').value
-            });
-            
-            if (selectedPath && selectedPath.length > 0) {
-                document.getElementById('pathInput').value = selectedPath[0];
-                document.getElementById('result').value = selectedPath[0];
-                setTimeout(() => {
-                    window.close();
-                }, 500);
-            }
-        }
-        
-        function useDefault() {
-            const desktopPath = 'C:\\\\Users\\\\' + (process.env.USERNAME || 'User') + '\\\\Desktop';
-            document.getElementById('pathInput').value = desktopPath;
-            document.getElementById('result').value = desktopPath;
-            setTimeout(() => {
-                window.close();
-            }, 500);
-        }
-        
-        // Handle Enter key
-        document.getElementById('pathInput').addEventListener('keypress', function(e) {
-            if (e.key === 'Enter') {
-                document.getElementById('result').value = this.value;
-                setTimeout(() => {
-                    window.close();
-                }, 500);
-            }
-        });
-    </script>
-    
-    <input type="hidden" id="result" value="">
-</body>
-</html>
-\`;
-  
-  // For now, let's use a simpler approach that works better with pkg
-  // We'll create a Windows Script Host dialog instead
-  const vbsScript = \`
-Set objShell = CreateObject("Shell.Application")
-Set objFolder = objShell.BrowseForFolder(0, "Select folder to extract files to:", 0)
-
-If objFolder Is Nothing Then
-    WScript.Echo "C:\\\\Users\\\\" & CreateObject("WScript.Network").UserName & "\\\\Desktop"
-Else
-    WScript.Echo objFolder.Self.Path
-End If
-\`;
-
-  try {
-    const tempVbsFile = path.join(os.tmpdir(), \`folder-dialog-\${Date.now()}.vbs\`);
-    fs.writeFileSync(tempVbsFile, vbsScript);
-    
-    const result = execSync(\`cscript //nologo "\${tempVbsFile}"\`, { 
-      encoding: 'utf8',
-      timeout: 60000
-    }).trim();
-    
-    // Clean up
-    if (fs.existsSync(tempVbsFile)) {
-      fs.unlinkSync(tempVbsFile);
-    }
-    
-    if (result && result.length > 0 && fs.existsSync(result)) {
-      return result;
-    }
-    
-    return null;
-    
-  } catch (error) {
-    console.log(\`\\n⚠️  Native dialog failed: \${error.message}\`);
-    return null;
-  }
-}
-
-function getInteractiveInput() {
-  // Fallback to batch file input method when PowerShell dialog fails
-  const tempDir = os.tmpdir();
-  const batchFile = path.join(tempDir, \`folder-select-\${Date.now()}.bat\`);
-  const resultFile = path.join(tempDir, \`folder-result-\${Date.now()}.txt\`);
-  
-  const batchContent = \`@echo off
-setlocal EnableDelayedExpansion
-
-echo.
-echo ========================================
-echo    Folder Selection for File Extractor
-echo ========================================
-echo.
-echo IMPORTANT: You need to specify WHERE to extract the mod files!
-echo.
-echo Please enter the full path where you want to extract the files.
-echo.
-echo Common game directories:
-echo   C:\\\\Program Files ^(x86^)\\\\Steam\\\\steamapps\\\\common\\\\[GameName]\\\\BepInEx\\\\plugins
-echo   C:\\\\Program Files\\\\Steam\\\\steamapps\\\\common\\\\[GameName]\\\\BepInEx\\\\plugins
-echo   C:\\\\Program Files ^(x86^)\\\\Epic Games\\\\[GameName]\\\\BepInEx\\\\plugins
-echo   D:\\\\Games\\\\[GameName]\\\\BepInEx\\\\plugins
-echo.
-echo You can:
-echo   - Type the full path (RECOMMENDED)
-echo   - Drag and drop a folder here
-echo   - Press Enter for Desktop (NOT RECOMMENDED)
-echo.
-
-set /p "selectedPath=Enter extraction path (or press Enter for Desktop): "
-
-if "!selectedPath!"=="" (
-    set "selectedPath=%USERPROFILE%\\\\Desktop"
-    echo.
-    echo WARNING: Using Desktop as extraction location!
-    echo This is not recommended for game mods.
-    echo.
-)
-
-echo !selectedPath! > "\${resultFile}"
-echo.
-echo Selected: !selectedPath!
-echo.
-echo Press any key to continue...
-pause > nul\`;
-
-  try {
-    // Write the batch file
-    fs.writeFileSync(batchFile, batchContent);
-    
-    // Run the batch file
-    execSync(\`"\${batchFile}"\`, { stdio: 'inherit' });
-    
-    // Read the result
-    if (fs.existsSync(resultFile)) {
-      const result = fs.readFileSync(resultFile, 'utf8').trim();
-      
-      // Clean up temp files
-      if (fs.existsSync(batchFile)) fs.unlinkSync(batchFile);
-      if (fs.existsSync(resultFile)) fs.unlinkSync(resultFile);
-      
-      if (result && result.length > 0) {
-        console.log(\`\\n✅ Selected directory: \${result}\`);
-        return result;
-      }
-    }
-    
-    // Fallback to smart default
-    return getSmartDefaultPath();
-    
-  } catch (error) {
-    console.log(\`\\n⚠️  Interactive input failed: \${error.message}\`);
-    
-    // Clean up temp files
-    if (fs.existsSync(batchFile)) fs.unlinkSync(batchFile);
-    if (fs.existsSync(resultFile)) fs.unlinkSync(resultFile);
-    
-    return getSmartDefaultPath();
-  }
-}
-
-function getSmartDefaultPath() {
-  // Smart path detection - try to find common game directories
-  const possiblePaths = [
-    path.join(os.homedir(), 'Desktop'),
-    'C:\\\\Program Files (x86)\\\\Steam\\\\steamapps\\\\common',
-    'C:\\\\Program Files\\\\Steam\\\\steamapps\\\\common',
-    'C:\\\\Program Files (x86)\\\\Epic Games',
-    'C:\\\\Program Files\\\\Epic Games',
-    'C:\\\\Games',
-    path.join(os.homedir(), 'Documents', 'My Games')
-  ];
-  
-  for (const testPath of possiblePaths) {
-    if (fs.existsSync(testPath)) {
-      console.log(\`\\n📂 Using smart default: \${testPath}\`);
-      return testPath;
-    }
-  }
-  
-  // Ultimate fallback
-  const defaultDir = path.join(os.homedir(), 'Desktop');
-  console.log(\`\\n📂 Using fallback default: \${defaultDir}\`);
-  return defaultDir;
-}
-
-function extractFiles() {
-  try {
-    showMessage('${this.config.appName} - File Extractor');
-    
-    console.log('\\n⏱️  Preparing extraction... Please wait...');
-    
-    const extractDir = selectDirectory();
-    
-    if (!extractDir) {
-      console.log('❌ No extraction directory specified.');
-      return;
-    }
-
-    console.log(\`\\n📂 Extracting to: \${extractDir}\`);
-    
-    // Create extraction directory
-    if (!fs.existsSync(extractDir)) {
-      fs.mkdirSync(extractDir, { recursive: true });
-    }
-    
-    // Find the archive file in the same directory as the executable
-    const executablePath = process.execPath;
-    const executableDir = path.dirname(executablePath);
-    let archivePath = path.join(executableDir, archiveFileName);
-    
-    console.log(\`\\n📦 Looking for archive: \${archivePath}\`);
-    
-    // If not found in executable directory, try current working directory
-    if (!fs.existsSync(archivePath)) {
-      const cwdArchivePath = path.join(process.cwd(), archiveFileName);
-      console.log(\`\\n📦 Trying current directory: \${cwdArchivePath}\`);
-      
-      if (fs.existsSync(cwdArchivePath)) {
-        archivePath = cwdArchivePath;
-        console.log(\`\\n✅ Found archive in current directory\`);
-      } else {
-        // Try to find any archive file with similar name
-        const possibleNames = [
-          archiveFileName,
-          archiveFileName.replace('_archive.zip', '.zip'),
-          archiveFileName.replace('_archive.zip', '_files.zip'),
-          'files.zip',
-          'archive.zip'
-        ];
-        
-        let found = false;
-        for (const name of possibleNames) {
-          const testPath = path.join(executableDir, name);
-          if (fs.existsSync(testPath)) {
-            archivePath = testPath;
-            console.log(\`\\n✅ Found archive: \${name}\`);
-            found = true;
-            break;
-          }
-        }
-        
-        if (!found) {
-          throw new Error(\`Archive file not found. Tried:\\n- \${archivePath}\\n- \${cwdArchivePath}\\n\\nPlease ensure the \${archiveFileName} file is in the same folder as this executable.\`);
-        }
-      }
-    }
-    
-    const tempArchivePath = path.join(os.tmpdir(), 'temp-extract-${Date.now()}.zip');
-    console.log(\`\\n📦 Copying archive to: \${tempArchivePath}\`);
-    
-    fs.copyFileSync(archivePath, tempArchivePath);
-    const stats = fs.statSync(tempArchivePath);
-    console.log(\`✅ Archive copied (\${stats.size} bytes)\`);
-    
-    // Extract using Node.js native zip library (more reliable than PowerShell)
     try {
-      console.log('\\n🔄 Extracting files...');
-      console.log('\\n⏳ Please wait while files are being extracted...');
+      // Read the template file and extract the template string
+      const templateFileContent = fs.readFileSync(templatePath, 'utf8');
+      // Extract the template string between the backticks (multiline match)
+      // The template starts after "const GUI_TEMPLATE = `" and ends before "`;\n\nmodule.exports"
+      // Extract template: find content between "const GUI_TEMPLATE = `" and closing "`;"
+      const startMarker = 'const GUI_TEMPLATE = `';
+      const startIdx = templateFileContent.indexOf(startMarker);
       
-      console.log('\\n🔧 Running Node.js extraction...');
-      console.log(\`Source: \${tempArchivePath}\`);
-      console.log(\`Destination: \${extractDir}\`);
-      
-      // Use a hybrid approach - try AdmZip first, fallback to PowerShell
-      let extractedCount = 0;
-      
-      try {
-        // Try AdmZip first (if available)
-        if (typeof AdmZip !== 'undefined') {
-          const zip = new AdmZip(tempArchivePath);
-          const entries = zip.getEntries();
-          
-          console.log(\`\\n📦 Archive contains \${entries.length} items\`);
-          
-          entries.forEach(entry => {
-            if (!entry.isDirectory) {
-              const entryPath = path.join(extractDir, entry.entryName);
-              const entryDir = path.dirname(entryPath);
-              
-              // Create directory if it doesn't exist
-              if (!fs.existsSync(entryDir)) {
-                fs.mkdirSync(entryDir, { recursive: true });
-              }
-              
-              // Extract file
-              fs.writeFileSync(entryPath, entry.getData());
-              extractedCount++;
-              
-              console.log(\`   📄 Extracted: \${entry.entryName}\`);
-            } else {
-              // Create directory
-              const dirPath = path.join(extractDir, entry.entryName);
-              if (!fs.existsSync(dirPath)) {
-                fs.mkdirSync(dirPath, { recursive: true });
-              }
-              console.log(\`   📂 Created: \${entry.entryName}/\`);
-            }
-          });
-        } else {
-          throw new Error('AdmZip not available');
-        }
-      } catch (zipError) {
-        console.log('\\n⚠️  AdmZip not available, using PowerShell fallback...');
+      if (startIdx !== -1) {
+        // Find the closing backtick before module.exports
+        const afterStart = templateFileContent.substring(startIdx + startMarker.length);
+        // Look for the pattern: backtick, semicolon, newline(s), module.exports
+        const endPattern = /`;\s*module\.exports = GUI_TEMPLATE;/;
+        const endMatch = afterStart.match(endPattern);
         
-        // Create progress spinner for extraction (with fallback)
-        let spinner;
-        try {
-          spinner = ora('🔄 Extracting files...').start();
-        } catch (oraError) {
-          console.log('🔄 Extracting files...');
-          spinner = {
-            succeed: (msg) => console.log(msg),
-            fail: (msg) => console.log(msg)
-          };
+        if (endMatch) {
+          template = afterStart.substring(0, endMatch.index);
+        } else {
+          throw new Error('Could not find end of template in file');
         }
-
-        // Fallback to PowerShell extraction with better error handling
-        const psExtractScript = \`
-Write-Host "Starting PowerShell extraction..." -ForegroundColor Cyan
-Write-Host "Source: \${tempArchivePath.replace(/\\\\/g, '/')}" -ForegroundColor Gray
-Write-Host "Destination: \${extractDir.replace(/\\\\/g, '/')}" -ForegroundColor Gray
-Write-Host ""
-
-# Check if source exists
-if (Test-Path "\${tempArchivePath.replace(/\\\\/g, '/')}") {
-  Write-Host "✅ Source archive found" -ForegroundColor Green
-  \$sourceSize = (Get-Item "\${tempArchivePath.replace(/\\\\/g, '/')}").Length
-  Write-Host "Archive size: \$sourceSize bytes" -ForegroundColor Gray
-} else {
-  Write-Host "❌ Source archive not found!" -ForegroundColor Red
-  throw "Source archive not found: \${tempArchivePath.replace(/\\\\/g, '/')}"
-}
-
-# Check if destination exists
-if (Test-Path "\${extractDir.replace(/\\\\/g, '/')}") {
-  Write-Host "✅ Destination directory exists" -ForegroundColor Green
-} else {
-  Write-Host "⚠️  Destination directory doesn't exist, creating..." -ForegroundColor Yellow
-  New-Item -ItemType Directory -Path "\${extractDir.replace(/\\\\/g, '/')}" -Force
-}
-
-try {
-  Write-Host "Extracting files..." -ForegroundColor Yellow
-  Expand-Archive -Path "\${tempArchivePath.replace(/\\\\/g, '/')}" -DestinationPath "\${extractDir.replace(/\\\\/g, '/')}" -Force
-  Write-Host "✅ PowerShell extraction completed!" -ForegroundColor Green
-  
-  # List extracted files
-  Write-Host "Extracted files:" -ForegroundColor Cyan
-  \$items = Get-ChildItem -Path "\${extractDir.replace(/\\\\/g, '/')}" -Recurse
-  Write-Host "Total items extracted: \$(\$items.Count)" -ForegroundColor Green
-  \$items | ForEach-Object {
-    if (\$_.PSIsContainer) {
-      Write-Host "  📂 \$(\$_.FullName)" -ForegroundColor Blue
     } else {
-      Write-Host "  📄 \$(\$_.FullName)" -ForegroundColor White
-    }
-  }
-} catch {
-  Write-Host "❌ PowerShell extraction failed: \$(\$_.Exception.Message)" -ForegroundColor Red
-  Write-Host "Full error: \$(\$_)" -ForegroundColor Red
-  throw \$_
-}
-\`;
-        
-        try {
-          // Try a simpler PowerShell command first
-          execSync(\`powershell -Command "Expand-Archive -Path '\${tempArchivePath}' -DestinationPath '\${extractDir}' -Force"\`, { 
-            stdio: 'inherit', 
-            shell: true,
-            timeout: 60000  // 60 second timeout
-          });
-          
-          // Count extracted files
-          const extractedFiles = fs.readdirSync(extractDir);
-          extractedCount = extractedFiles.length;
-          
-          spinner.succeed(\`✅ Extracted \${extractedCount} items successfully!\`);
-          
-          // List what was actually extracted
-          console.log(\`\\n📋 Files extracted to: \${extractDir}\`);
-          const extractedItems = fs.readdirSync(extractDir);
-          extractedItems.forEach(item => {
-            const itemPath = path.join(extractDir, item);
-            const itemStats = fs.statSync(itemPath);
-            if (itemStats.isDirectory()) {
-              console.log(\`   📂 \${item}/\`);
-            } else {
-              console.log(\`   📄 \${item} (\${formatBytes(itemStats.size)})\`);
-            }
-          });
-          
-        } catch (psError) {
-          spinner.fail('❌ Simple PowerShell extraction failed');
-          
-          // Try the detailed script as fallback
-          try {
-            let fallbackSpinner;
-            try {
-              fallbackSpinner = ora('🔧 Trying detailed PowerShell extraction...').start();
-            } catch (oraError) {
-              console.log('🔧 Trying detailed PowerShell extraction...');
-              fallbackSpinner = {
-                succeed: (msg) => console.log(msg),
-                fail: (msg) => console.log(msg)
-              };
-            }
-            execSync(\`powershell -Command "\${psExtractScript}"\`, { 
-              stdio: 'inherit', 
-              shell: true,
-              timeout: 60000  // 60 second timeout
-            });
-            
-            // Count extracted files
-            const extractedFiles = fs.readdirSync(extractDir);
-            extractedCount = extractedFiles.length;
-            
-            fallbackSpinner.succeed(\`✅ Extracted \${extractedCount} items successfully!\`);
-            
-          } catch (detailedPsError) {
-            fallbackSpinner.fail('❌ Detailed PowerShell extraction also failed');
-            throw detailedPsError;
-          }
-        }
+        throw new Error('Could not find start of template in file');
       }
-      
-      console.log(\`\\n✅ Successfully extracted \${extractedCount} files!\`);
-      
-      // Verify extraction worked and show results
-      const extractedFiles = fs.readdirSync(extractDir);
-      console.log(\`\\n📁 Directory contents after extraction (\${extractedFiles.length} items):\`);
-      
-      let totalSize = 0;
-      let newFilesCount = 0;
-      extractedFiles.forEach(file => {
-        const filePath = path.join(extractDir, file);
-        const stats = fs.statSync(filePath);
-        totalSize += stats.size;
-        
-        // Check if this looks like a newly extracted file/folder
-        const isLikelyNew = file.includes('test-mod-content') || 
-                           file.includes('BepInEx') || 
-                           file.includes('config.json') || 
-                           file.includes('TestMod.dll') ||
-                           file.includes('README.md') ||
-                           file.includes('mod') ||
-                           file.includes('plugin') ||
-                           file.includes('cache') ||
-                           file.includes('core') ||
-                           file.includes('patchers');
-        
-        if (stats.isDirectory()) {
-          console.log(\`   📂 \${file}/\`);
-          if (isLikelyNew) newFilesCount++;
-        } else {
-          const sizeStr = formatBytes(stats.size);
-          console.log(\`   📄 \${file} (\${sizeStr})\`);
-          if (isLikelyNew) newFilesCount++;
-        }
-      });
-      
-      console.log(\`\\n📊 Total directory size: \${formatBytes(totalSize)}\`);
-      if (newFilesCount > 0) {
-        console.log(\`\\n✅ Successfully extracted \${newFilesCount} new files/folders!\`);
-        console.log(\`\\n🎯 Extraction completed successfully!\`);
-      } else {
-        console.log(\`\\n⚠️  No new files detected, but extraction may have worked.\`);
-        console.log(\`\\n🔍 Check the extraction directory manually to verify files were extracted.\`);
-      }
-      
-      // Clean up temp file
-      if (fs.existsSync(tempArchivePath)) {
-        fs.unlinkSync(tempArchivePath);
-      }
-      
-    } catch (extractError) {
-      console.log(\`\\n⚠️  Node.js extraction failed: \${extractError.message}\`);
-      // Fallback: try to copy the archive to destination
-      console.log('\\n📋 Copying archive to destination...');
-      const destArchive = path.join(extractDir, 'extracted_files.zip');
-      fs.copyFileSync(tempArchivePath, destArchive);
-      console.log(\`✅ Archive copied to: \${destArchive}\`);
-      console.log('\\n📝 Manual extraction required:');
-      console.log(\`   Right-click on \${destArchive} and select "Extract All"\`);
-    }
-    
-    showMessage('✅ Extraction completed!\\n\\nFiles have been extracted to:\\n' + extractDir);
-    
-    // Keep window open longer and wait for user input
-    console.log('\\n==========================================');
-    console.log('        INSTALLATION COMPLETED!');
-    console.log('==========================================');
-    console.log('\\n🎉 Installation completed successfully!');
-    console.log('\\n📁 Files extracted to: ' + extractDir);
-    console.log('\\n⏱️  This window will stay open for 30 seconds...');
-    console.log('\\n💡 You can close this window manually by clicking the X button.');
-    
-    // Simple pause before closing
-    setTimeout(() => {
-      console.log('\\n\\n👋 Goodbye!');
-      process.exit(0);
-    }, 30000);
-    
   } catch (error) {
-    showMessage('❌ Extraction failed:\\n' + error.message);
-    console.log('\\n==========================================');
-    console.log('        INSTALLATION FAILED!');
-    console.log('==========================================');
-    console.log('\\n❌ Installation failed!');
-    console.log('\\n🔍 Error details: ' + error.message);
-    console.log('\\n⏱️  This window will stay open for 30 seconds...');
-    console.log('\\n💡 You can close this window manually by clicking the X button.');
-    
-    setTimeout(() => {
-      console.log('\\n\\n👋 Goodbye!');
-      process.exit(1);
-    }, 30000);
-  }
-}
-
-// Add error handling to catch any silent failures
-process.on('uncaughtException', (error) => {
-  console.log('\\n❌ CRITICAL ERROR CAUGHT:');
-  console.log('Error: ' + error.message);
-  console.log('Stack: ' + error.stack);
-  console.log('\\n⏱️  Window will stay open for 30 seconds...');
-  
-  setTimeout(() => {
-    console.log('\\n\\n👋 Goodbye!');
-    process.exit(1);
-  }, 30000);
-});
-
-process.on('unhandledRejection', (reason, promise) => {
-  console.log('\\n❌ UNHANDLED REJECTION:');
-  console.log('Reason: ' + reason);
-  console.log('\\n⏱️  Window will stay open for 30 seconds...');
-  
-  setTimeout(() => {
-    console.log('\\n\\n👋 Goodbye!');
-    process.exit(1);
-  }, 30000);
-});
-
-// Force console window to appear on Windows
-if (process.platform === 'win32') {
-  // Create a console window if one doesn't exist
-  try {
-    const { execSync } = require('child_process');
-    execSync('title Mod Installer', { stdio: 'ignore' });
-    
-    // Also try to allocate a console
-    try {
-      const { execSync } = require('child_process');
-      execSync('cmd /c echo Console allocated', { stdio: 'ignore' });
-    } catch (e) {
-      // Ignore errors
+      throw new Error(`Failed to load GUI template: ${error.message}. Make sure installer-gui-template.js exists.`);
     }
-  } catch (e) {
-    // Ignore errors
-  }
-  
-  // Force stdout to be available
-  if (!process.stdout.isTTY) {
-    // Don't override stdout.write with console.log to avoid circular reference
-    process.stdout.isTTY = true;
-  }
-}
-
-// Start extraction with immediate pause and error handling
-try {
-  console.log('==========================================');
-  console.log('           MOD INSTALLER STARTED');
-  console.log('==========================================');
-  console.log('\\n🚀 Starting extraction process...');
-  extractFiles();
-} catch (startupError) {
-  console.log('\\n❌ STARTUP ERROR:');
-  console.log('Error: ' + startupError.message);
-  console.log('Stack: ' + startupError.stack);
-  console.log('\\n⏱️  Window will stay open for 30 seconds...');
-  
-  setTimeout(() => {
-    console.log('\\n\\n👋 Goodbye!');
-    process.exit(1);
-  }, 30000);
-}
-`;
+    
+    // Replace placeholders with actual values (escape backticks and dollar signs in archive data)
+    if (!archiveBase64 || archiveBase64.length === 0) {
+      console.warn('⚠️  Warning: Archive base64 is empty! Archive may be empty.');
+    }
+    
+    const escapedArchive = (archiveBase64 || '').replace(/\\/g, '\\\\').replace(/`/g, '\\`').replace(/\$/g, '\\$');
+    const appNameSafe = (this.config.appName || 'MyPackage').replace(/'/g, "\\'");
+    
+    console.log('Replacing placeholders...');
+    console.log('Archive size:', archiveSize, 'bytes');
+    console.log('Archive base64 length:', escapedArchive.length);
+    console.log('App name:', appNameSafe);
+    
+    // Count how many times each placeholder appears in template
+    const archivePlaceholderCount = (template.match(/\{\{ARCHIVE_BASE64\}\}/g) || []).length;
+    const sizePlaceholderCount = (template.match(/\{\{ARCHIVE_SIZE\}\}/g) || []).length;
+    const appNamePlaceholderCount = (template.match(/\{\{APP_NAME\}\}/g) || []).length;
+    
+    console.log('Placeholders found in template:');
+    console.log('  {{ARCHIVE_BASE64}}:', archivePlaceholderCount);
+    console.log('  {{ARCHIVE_SIZE}}:', sizePlaceholderCount);
+    console.log('  {{APP_NAME}}:', appNamePlaceholderCount);
+    
+    // Perform replacement with explicit checks
+    let guiCode = template;
+    
+    // Replace ARCHIVE_BASE64 - must happen first
+    const archivePlaceholderRegex = /\{\{ARCHIVE_BASE64\}\}/g;
+    const archiveMatches = guiCode.match(archivePlaceholderRegex);
+    if (archiveMatches) {
+      console.log('Found', archiveMatches.length, 'instances of {{ARCHIVE_BASE64}} to replace');
+      guiCode = guiCode.replace(archivePlaceholderRegex, escapedArchive);
+      // Verify replacement
+      if (guiCode.includes('{{ARCHIVE_BASE64}}')) {
+        throw new Error('Failed to replace all {{ARCHIVE_BASE64}} placeholders!');
+      }
+      console.log('✅ All {{ARCHIVE_BASE64}} placeholders replaced');
+    }
+    
+    // Replace ARCHIVE_SIZE
+    guiCode = guiCode.replace(/\{\{ARCHIVE_SIZE\}\}/g, String(archiveSize));
+    
+    // Replace APP_NAME
+    guiCode = guiCode.replace(/\{\{APP_NAME\}\}/g, appNameSafe);
+    
+    // Validate that all placeholders were replaced
+    const hasArchivePlaceholder = guiCode.includes('{{ARCHIVE_BASE64}}');
+    const hasSizePlaceholder = guiCode.includes('{{ARCHIVE_SIZE}}');
+    const hasAppNamePlaceholder = guiCode.includes('{{APP_NAME}}');
+    
+    if (hasArchivePlaceholder || hasSizePlaceholder || hasAppNamePlaceholder) {
+      console.error('❌ ERROR: Some placeholders were not replaced!');
+      if (hasArchivePlaceholder) {
+        const pos = guiCode.indexOf('{{ARCHIVE_BASE64}}');
+        console.error('  - {{ARCHIVE_BASE64}} still present at position:', pos);
+        console.error('  - Context:', guiCode.substring(Math.max(0, pos - 50), pos + 100));
+      }
+      if (hasSizePlaceholder) {
+        console.error('  - {{ARCHIVE_SIZE}} still present');
+      }
+      if (hasAppNamePlaceholder) {
+        console.error('  - {{APP_NAME}} still present');
+      }
+      throw new Error('Placeholder replacement failed! Cannot create installer.');
+      } else {
+      console.log('✅ All placeholders replaced successfully');
+      // Verify archive data is actually in the code
+      if (escapedArchive.length > 0) {
+        const archiveInCode = guiCode.includes(escapedArchive.substring(0, 20));
+        console.log('✅ Archive data verified in generated code:', archiveInCode);
+      }
+    }
+    
+    return guiCode;
   }
 
   /**
    * Create the final executable using pkg
    */
-  async createExtractorExecutable(extractorPath, outputName, archivePath) {
+  async createExtractorExecutable(extractorPath, outputName) {
     console.log("📦 Installing required packages...");
 
     // Install required packages with spinner
@@ -959,15 +498,23 @@ try {
     const outputPath = path.join(this.config.outputDir, sanitizedOutputName);
 
     // Build pkg command with enhanced options
+    // Note: Using package.json in tempDir to ensure proper configuration
+    const tempDir = path.dirname(extractorPath);
+    const extractorFileName = path.basename(extractorPath);
+    const originalCwd = process.cwd();
+    
+    // Use absolute path for output, but relative path for extractor (pkg will run from tempDir)
     const pkgCommand = [
       "pkg",
-      extractorPath,
+      extractorFileName,  // Use just filename since we'll run from tempDir
       "--output",
-      outputPath,
+      path.resolve(originalCwd, outputPath),  // Use absolute path for output
       "--target",
       "node18-win-x64",
       "--compress",
       "GZip",
+      "--options",
+      "max_old_space_size=4096",
     ];
 
     // Add custom icon if specified
@@ -985,32 +532,45 @@ try {
     // Package the extractor with pkg
     const pkgSpinner = ora("📦 Creating executable...").start();
     try {
+      // Create a .pkgignore file to prevent pkg from including the original template file
+      // This ensures pkg only bundles extractor.js and doesn't include any external files
+      const pkgIgnorePath = path.join(tempDir, '.pkgignore');
+      const templateAbsPath = path.resolve(originalCwd, 'installer-gui-template.js');
+      const templateRelPath = path.relative(tempDir, templateAbsPath);
+      // Write ignore patterns - use both relative and absolute paths, and wildcards
+      const ignorePatterns = [
+        'installer-gui-template.js',
+        '**/installer-gui-template.js',
+        templateRelPath.replace(/\\/g, '/'), // Normalize path separators
+        templateAbsPath.replace(/\\/g, '/'),
+      ].filter(p => p && !p.startsWith('..')); // Filter out invalid relative paths
+      fs.writeFileSync(pkgIgnorePath, ignorePatterns.join('\n') + '\n');
+      console.log('Created .pkgignore to exclude template file');
+      
       console.log(`\n🔧 Running: ${pkgCommand.join(" ")}`);
-      execSync(pkgCommand.join(" "), { stdio: "inherit" });
+      // Run pkg from temp directory so it can find package.json and extractor.js
+      process.chdir(tempDir);
+      try {
+        // Build command using relative path from tempDir
+        // Use --no-bytecode to avoid Babel parse errors and ensure string replacements are preserved
+        const pkgCmd = [
+          "pkg",
+          extractorFileName,  // Relative to tempDir
+          "--output",
+          path.resolve(originalCwd, outputPath),
+          "--target",
+          "node18-win-x64",
+          "--compress",
+          "GZip",
+          "--options",
+          "max_old_space_size=4096",
+        ];
+        execSync(pkgCmd.join(" "), { stdio: "inherit" });
+      } finally {
+        // Restore original working directory
+        process.chdir(originalCwd);
+      }
       pkgSpinner.succeed("✅ Executable created successfully");
-
-      // Create a batch file wrapper to ensure console window appears
-      let batchPath = outputPath + "_installer.bat";
-      const batchContent = `@echo off
-title ${this.config.appName}
-echo ==========================================
-echo    ${this.config.appName}
-echo ==========================================
-echo.
-echo Starting installation...
-echo.
-"%~dp0${path.basename(outputPath)}.exe"
-echo.
-echo ==========================================
-echo Installation completed!
-echo ==========================================
-echo.
-echo Press any key to exit...
-pause >nul
-`;
-
-      fs.writeFileSync(batchPath, batchContent);
-      console.log(`📋 Created console wrapper: ${path.basename(batchPath)}`);
     } catch (error) {
       pkgSpinner.fail("❌ Executable creation failed");
       throw error;
@@ -1086,16 +646,19 @@ function main() {
 Usage: node pack-files.js [options]
 
 Options:
-  --files <pattern>     - Files to include (can specify multiple)
-  --folders <pattern>   - Folders to include (can specify multiple)
+  --folder <path>       - Mod folder to package (simplified option, recommended)
+  --files <pattern>     - Files to include (can specify multiple, advanced)
+  --folders <pattern>   - Folders to include (can specify multiple, advanced)
   --output-name <name>  - Name of the output executable
   --app-name <name>     - Application name
   --version <version>   - Version number
   --config <file>       - Use configuration file (JSON)
+  --silent-mode         - Create silent installer (no user prompts)
+  --extract-path <path> - Default extraction path for silent mode
 
 Examples:
-  node pack-files.js --files "./config.json" --files "./readme.txt" --output-name "MyPackage"
-  node pack-files.js --folders "./assets" --folders "./data" --output-name "GameFiles"
+  node pack-files.js --folder "./my-mod" --output-name "MyMod"
+  node pack-files.js --folder "./mods/my-mod" --app-name "MyMod" --version "1.0.0"
   node pack-files.js --config ./pack-config.json
 
 Configuration file format:
@@ -1113,15 +676,23 @@ Configuration file format:
   let config = {};
 
   // Parse command line options
-  for (let i = 0; i < args.length; i += 2) {
+  for (let i = 0; i < args.length; i++) {
     const key = args[i].replace("--", "");
-    const value = args[i + 1];
 
-    if (key === "files" || key === "folders") {
+    if (key === "silent-mode") {
+      options[key] = true;
+    } else if (key === "folder") {
+      // Simplified option: single folder
+      options.folders = [args[i + 1]];
+      options.files = [];
+      i++; // Skip the value
+    } else if (key === "files" || key === "folders") {
       if (!options[key]) options[key] = [];
-      options[key].push(value);
-    } else {
-      options[key] = value;
+      options[key].push(args[i + 1]);
+      i++; // Skip the value
+    } else if (i + 1 < args.length && !args[i + 1].startsWith("--")) {
+      options[key] = args[i + 1];
+      i++; // Skip the value
     }
   }
 
@@ -1152,7 +723,12 @@ Configuration file format:
   };
 
   // Create packer and run
-  const packer = new FilePacker(finalConfig);
+  const packerConfig = {
+    ...finalConfig,
+    silentMode: options["silent-mode"] || false,
+    defaultExtractPath: options["extract-path"] || null,
+  };
+  const packer = new FilePacker(packerConfig);
 
   if (!fs.existsSync(finalConfig.outputDir)) {
     fs.mkdirSync(finalConfig.outputDir, { recursive: true });

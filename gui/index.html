@@ -1,0 +1,126 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>EXE Packager - Universal Installer Creator</title>
+    <link rel="stylesheet" href="styles.css">
+</head>
+<body>
+    <div class="container">
+        <!-- Header -->
+        <header class="header">
+            <h1>📦 EXE Packager</h1>
+            <p class="subtitle">Universal Single-File Installer Creator</p>
+        </header>
+
+        <!-- Main Content -->
+        <main class="main-content">
+            <!-- Step 1: Select Folder -->
+            <section class="section">
+                <h2>Step 1: Select Folder to Package</h2>
+                <div class="input-group">
+                    <input 
+                        type="text" 
+                        id="folderPath" 
+                        class="path-input" 
+                        placeholder="Click 'Browse' to select a folder..."
+                        readonly
+                    >
+                    <button id="browseBtn" class="btn btn-primary">Browse</button>
+                </div>
+                <p class="help-text">Select the folder containing files you want to package</p>
+            </section>
+
+            <!-- Step 2: Configure Installer -->
+            <section class="section">
+                <h2>Step 2: Configure Installer</h2>
+                
+                <div class="form-grid">
+                    <div class="form-group">
+                        <label for="appName">Application Name</label>
+                        <input 
+                            type="text" 
+                            id="appName" 
+                            class="input" 
+                            placeholder="My Application"
+                            value="MyPackage"
+                        >
+                    </div>
+
+                    <div class="form-group">
+                        <label for="outputName">Output Executable Name</label>
+                        <input 
+                            type="text" 
+                            id="outputName" 
+                            class="input" 
+                            placeholder="MyInstaller"
+                        >
+                    </div>
+
+                    <div class="form-group">
+                        <label for="version">Version</label>
+                        <input 
+                            type="text" 
+                            id="version" 
+                            class="input" 
+                            placeholder="1.0.0"
+                            value="1.0.0"
+                        >
+                    </div>
+
+                    <div class="form-group">
+                        <label for="outputDir">Output Directory</label>
+                        <div class="input-group">
+                            <input 
+                                type="text" 
+                                id="outputDir" 
+                                class="path-input" 
+                                value="./dist"
+                                readonly
+                            >
+                            <button id="browseOutputBtn" class="btn btn-secondary">Browse</button>
+                        </div>
+                    </div>
+                </div>
+
+                <div class="checkbox-group">
+                    <label class="checkbox-label">
+                        <input type="checkbox" id="includeVersion" checked>
+                        <span>Include version in filename</span>
+                    </label>
+                </div>
+            </section>
+
+            <!-- Step 3: Create Installer -->
+            <section class="section">
+                <h2>Step 3: Create Installer</h2>
+                
+                <div id="progressContainer" class="progress-container" style="display: none;">
+                    <div class="progress-bar">
+                        <div id="progressFill" class="progress-fill"></div>
+                    </div>
+                    <p id="progressText" class="progress-text">Creating installer...</p>
+                </div>
+
+                <div id="resultContainer" class="result-container" style="display: none;">
+                    <div id="resultMessage" class="result-message"></div>
+                    <button id="openFolderBtn" class="btn btn-success" style="display: none;">Open Output Folder</button>
+                </div>
+
+                <button id="createBtn" class="btn btn-primary btn-large" disabled>
+                    Create Installer
+                </button>
+            </section>
+        </main>
+
+        <!-- Footer -->
+        <footer class="footer">
+            <p>Universal Installer Creator - Works with any game, application, or file distribution</p>
+        </footer>
+    </div>
+
+    <script src="renderer.js"></script>
+</body>
+</html>
+
