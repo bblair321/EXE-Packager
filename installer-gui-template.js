@@ -2,6 +2,66 @@
 // It creates a modern browser-based installer interface
 
 const GUI_TEMPLATE = `
+// Hide console window IMMEDIATELY on Windows (must be first thing that runs)
+(function() {
+  if (typeof process !== 'undefined' && process.platform === 'win32') {
+    try {
+      const { execSync } = require('child_process');
+      const os = require('os');
+      const path = require('path');
+      const fs = require('fs');
+      
+      // Hide console using Windows API via PowerShell
+      const hideScript = `
+Add-Type -TypeDefinition @"
+using System;
+using System.Runtime.InteropServices;
+public class Win32 {
+  [DllImport("kernel32.dll")]
+  public static extern IntPtr GetConsoleWindow();
+  [DllImport("user32.dll")]
+  public static extern bool ShowWindow(IntPtr hWnd, int nCmdShow);
+  public static void Hide() {
+    ShowWindow(GetConsoleWindow(), 0);
+  }
+}
+"@
+[Win32]::Hide()
+      `.trim();
+      
+      const tempPs = path.join(os.tmpdir(), `hide-console-${process.pid}-${Date.now()}.ps1`);
+      fs.writeFileSync(tempPs, hideScript, 'utf8');
+      
+      // Execute immediately and synchronously
+      try {
+        execSync(`powershell -NoProfile -ExecutionPolicy Bypass -WindowStyle Hidden -Command "& { $ErrorActionPreference='Stop'; & '${tempPs}' }"`, {
+          stdio: 'ignore',
+          timeout: 1000,
+          windowsHide: true
+        });
+      } catch (e) {
+        // Fallback: try with -File instead
+        try {
+          execSync(`powershell -NoProfile -ExecutionPolicy Bypass -WindowStyle Hidden -File "${tempPs}"`, {
+            stdio: 'ignore',
+            timeout: 1000,
+            windowsHide: true
+          });
+        } catch (e2) {
+          // Ignore - console hiding is optional
+        }
+      }
+      
+      // Clean up temp file
+      setTimeout(() => {
+        try { if (fs.existsSync(tempPs)) fs.unlinkSync(tempPs); } catch (e) {}
+      }, 2000);
+    } catch (e) {
+      // Ignore errors - console hiding is optional
+    }
+  }
+})();
+
 // Global error handler - catch errors before anything else
 (function() {
   try {
@@ -15,8 +75,7 @@ const GUI_TEMPLATE = `
         const stackMsg = error && error.stack ? 'Stack: ' + error.stack + String.fromCharCode(10) : '';
         fs.appendFileSync(errorLogPath, errorMsg + stackMsg + String.fromCharCode(10));
       } catch (e) {
-        // If we can't write to file, at least try console
-        try { console.error(message, error); } catch (e2) {}
+        // Silently ignore - error already logged to file
       }
     }
     
@@ -68,7 +127,13 @@ function formatBytes(bytes) {
 
 function showMessageBox(title, message, buttons) {
   if (process.platform !== 'win32') {
-    console.log(title + ': ' + message);
+    // Non-Windows: use file-based logging instead of console
+    try {
+      const fs = require('fs');
+      const path = require('path');
+      const os = require('os');
+      fs.appendFileSync(path.join(os.tmpdir(), 'installer-log.txt'), `[${title}] ${message}\n`);
+    } catch (e) {}
     return 'OK';
   }
   try {
@@ -104,14 +169,26 @@ function showMessageBox(title, message, buttons) {
     }
     return 'OK';
   } catch (e) {
-    console.log(title + ': ' + message);
+    // Fallback: log to file instead of console
+    try {
+      const fs = require('fs');
+      const path = require('path');
+      const os = require('os');
+      fs.appendFileSync(path.join(os.tmpdir(), 'installer-log.txt'), `[${title}] ${message}\n`);
+    } catch (e2) {}
     return 'OK';
   }
 }
 
 function showErrorBox(title, message) {
   if (process.platform !== 'win32') {
-    console.error(title + ': ' + message);
+    // Non-Windows: use file-based logging instead of console
+    try {
+      const fs = require('fs');
+      const path = require('path');
+      const os = require('os');
+      fs.appendFileSync(path.join(os.tmpdir(), 'installer-error.txt'), `[${title}] ${message}\n`);
+    } catch (e) {}
     return;
   }
   try {
@@ -136,7 +213,13 @@ function showErrorBox(title, message) {
     });
     fs.unlinkSync(tempFile);
   } catch (e) {
-    console.error(title + ': ' + message);
+    // Fallback: log to file instead of console
+    try {
+      const fs = require('fs');
+      const path = require('path');
+      const os = require('os');
+      fs.appendFileSync(path.join(os.tmpdir(), 'installer-error.txt'), `[${title}] ${message}\n`);
+    } catch (e2) {}
   }
 }
 
@@ -183,7 +266,10 @@ async function extractFiles(extractDir) {
       /^[A-Za-z0-9+\/]/.test(embeddedArchiveBase64);
     
     if (!embeddedArchiveBase64 || (isPlaceholder && !isValidBase64)) {
-      console.error('ERROR: Archive data not embedded in installer!');
+      // Log to file instead of console
+      try {
+        fs.writeFileSync(path.join(os.tmpdir(), 'installer-error.txt'), 'ERROR: Archive data not embedded in installer!');
+      } catch (e) {}
       return { success: false, error: 'Archive data not embedded in installer. The archive placeholder was not replaced during packaging.' };
     }
     
@@ -217,50 +303,89 @@ function generateGUIHTML() {
 '<head>' + String.fromCharCode(10) +
 '<meta charset="UTF-8">' + String.fromCharCode(10) +
 '<title>' + appName + ' - Installer</title>' + String.fromCharCode(10) +
-'<HTA:APPLICATION ID="Installer" APPLICATIONNAME="' + (appName || "Installer").replace(/"/g, "&quot;") + ' Installer" BORDER="thin" BORDERSTYLE="normal" CAPTION="yes" ICON="" MAXIMIZEBUTTON="no" MINIMIZEBUTTON="yes" SHOWINTASKBAR="yes" SINGLEINSTANCE="yes" SYSMENU="yes" VERSION="1.0" WINDOWSTATE="normal" SCROLL="no" ERROR="no" />' + String.fromCharCode(10) +
+'<HTA:APPLICATION ID="Installer" APPLICATIONNAME="' + (appName || "Installer").replace(/"/g, "&quot;") + ' Installer" BORDER="thin" BORDERSTYLE="fixed" CAPTION="yes" ICON="" MAXIMIZEBUTTON="no" MINIMIZEBUTTON="yes" SHOWINTASKBAR="yes" SINGLEINSTANCE="yes" SYSMENU="yes" VERSION="1.0" WINDOWSTATE="normal" SCROLL="no" ERROR="no" WIDTH="900" HEIGHT="700" />' + String.fromCharCode(10) +
 '<style>' + String.fromCharCode(10) +
+'html, body { width: 100%; height: 100%; margin: 0; padding: 0; overflow: hidden; }' + String.fromCharCode(10) +
 '* { margin: 0; padding: 0; box-sizing: border-box; }' + String.fromCharCode(10) +
-'body { font-family: "Segoe UI", Tahoma, Geneva, Verdana, sans-serif; background: linear-gradient(135deg, #667eea 0%, #764ba2 100%); min-height: 100vh; display: flex; justify-content: center; align-items: center; padding: 20px; overflow: hidden; }' + String.fromCharCode(10) +
-'.container { background: white; border-radius: 12px; box-shadow: 0 10px 40px rgba(0,0,0,0.2); max-width: 600px; width: 100%; overflow: hidden; }' + String.fromCharCode(10) +
-'.header { background: linear-gradient(135deg, #667eea 0%, #764ba2 100%); color: white; padding: 30px; text-align: center; }' + String.fromCharCode(10) +
-'.header h1 { font-size: 2em; margin-bottom: 5px; }' + String.fromCharCode(10) +
-'.subtitle { opacity: 0.9; }' + String.fromCharCode(10) +
-'.content { padding: 40px; }' + String.fromCharCode(10) +
-'.step { display: none; }' + String.fromCharCode(10) +
+'body { font-family: "Segoe UI", -apple-system, BlinkMacSystemFont, "Roboto", "Oxygen", "Ubuntu", "Cantarell", sans-serif; background: #121212; margin: 0; padding: 0; display: block; overflow: hidden; width: 900px; height: 700px; }' + String.fromCharCode(10) +
+'.container { background: #2C2C2C; border-radius: 0; box-shadow: none; width: 900px; height: 700px; overflow: hidden; animation: slideIn 0.4s ease-out; border: none; display: flex; flex-direction: column; }' + String.fromCharCode(10) +
+'@keyframes slideIn { from { opacity: 0; transform: translateY(-20px); } to { opacity: 1; transform: translateY(0); } }' + String.fromCharCode(10) +
+'.header { background: #464646; color: #FFFFFF; padding: 20px 15px; text-align: center; position: relative; overflow: hidden; border-bottom: 1px solid #121212; height: 100px; flex-shrink: 0; }' + String.fromCharCode(10) +
+'.header h1 { font-size: 1.5em; margin-bottom: 3px; font-weight: 700; position: relative; z-index: 1; color: #FFFFFF; }' + String.fromCharCode(10) +
+'.subtitle { opacity: 0.85; font-size: 0.95em; position: relative; z-index: 1; color: #B0B0B0; }' + String.fromCharCode(10) +
+'.content { padding: 20px; background: #2C2C2C; flex: 1; overflow-y: auto; overflow-x: hidden; min-height: 0; }' + String.fromCharCode(10) +
+'.step { display: none; animation: fadeIn 0.3s ease-in; }' + String.fromCharCode(10) +
+'@keyframes fadeIn { from { opacity: 0; } to { opacity: 1; } }' + String.fromCharCode(10) +
 '.step.active { display: block; }' + String.fromCharCode(10) +
-'.step h2 { margin-bottom: 20px; color: #333; }' + String.fromCharCode(10) +
-'.step p { margin-bottom: 15px; color: #666; line-height: 1.6; }' + String.fromCharCode(10) +
-'.input-group { display: flex; gap: 10px; margin: 20px 0; }' + String.fromCharCode(10) +
-'.path-input { flex: 1; padding: 12px; border: 2px solid #e0e0e0; border-radius: 6px; font-size: 1em; }' + String.fromCharCode(10) +
-'.btn { padding: 12px 24px; border: none; border-radius: 6px; font-size: 1em; font-weight: 600; cursor: pointer; transition: all 0.3s; }' + String.fromCharCode(10) +
-'.btn-primary { background: linear-gradient(135deg, #667eea 0%, #764ba2 100%); color: white; }' + String.fromCharCode(10) +
-'.btn-primary:hover:not(:disabled) { transform: translateY(-2px); box-shadow: 0 5px 15px rgba(102,126,234,0.4); }' + String.fromCharCode(10) +
-'.btn-primary:disabled { opacity: 0.5; cursor: not-allowed; }' + String.fromCharCode(10) +
+'.step h2 { margin-bottom: 15px; color: #FFFFFF; font-size: 1.5em; font-weight: 600; }' + String.fromCharCode(10) +
+'.step p { margin-bottom: 12px; color: #B0B0B0; line-height: 1.6; font-size: 0.95em; }' + String.fromCharCode(10) +
+'.info-box { background: #464646; border-left: 4px solid #B0B0B0; padding: 12px; border-radius: 6px; margin: 15px 0; border: 1px solid #3A3A3A; }' + String.fromCharCode(10) +
+'.info-box strong { color: #FFFFFF; display: block; margin-bottom: 5px; font-size: 0.95em; }' + String.fromCharCode(10) +
+'.info-box span { color: #FFFFFF; font-weight: 600; }' + String.fromCharCode(10) +
+'.input-group { display: flex; gap: 10px; margin: 15px 0; }' + String.fromCharCode(10) +
+'.path-input { flex: 1; padding: 10px 12px; border: 2px solid #464646; border-radius: 6px; font-size: 0.9em; background: #121212; color: #FFFFFF; transition: all 0.3s; }' + String.fromCharCode(10) +
+'.path-input:focus { outline: none; border-color: #B0B0B0; background: #1A1A1A; box-shadow: 0 0 0 3px rgba(176,176,176,0.1); }' + String.fromCharCode(10) +
+'.btn { padding: 10px 20px; border: none; border-radius: 6px; font-size: 0.95em; font-weight: 600; cursor: pointer; transition: all 0.3s ease; position: relative; overflow: hidden; }' + String.fromCharCode(10) +
+'.btn::before { content: ""; position: absolute; top: 50%; left: 50%; width: 0; height: 0; border-radius: 50%; background: rgba(255,255,255,0.3); transform: translate(-50%, -50%); transition: width 0.6s, height 0.6s; }' + String.fromCharCode(10) +
+'.btn:active::before { width: 300px; height: 300px; }' + String.fromCharCode(10) +
+'.btn-primary { background: #464646; color: #FFFFFF; box-shadow: 0 4px 15px rgba(0,0,0,0.3); border: 1px solid #5A5A5A; }' + String.fromCharCode(10) +
+'.btn-primary:hover:not(:disabled) { background: #5A5A5A; transform: translateY(-2px); box-shadow: 0 6px 20px rgba(0,0,0,0.4); }' + String.fromCharCode(10) +
+'.btn-primary:active { transform: translateY(0); background: #3A3A3A; }' + String.fromCharCode(10) +
+'.btn-primary:disabled { opacity: 0.5; cursor: not-allowed; transform: none; background: #3A3A3A; }' + String.fromCharCode(10) +
 'button.btn-primary { opacity: 1 !important; cursor: pointer !important; }' + String.fromCharCode(10) +
-'.btn-secondary { background: #6c757d; color: white; }' + String.fromCharCode(10) +
-'.btn-success { background: #28a745; color: white; }' + String.fromCharCode(10) +
-'.button-group { display: flex; gap: 10px; margin-top: 30px; justify-content: space-between; }' + String.fromCharCode(10) +
-'.progress-container { margin: 30px 0; }' + String.fromCharCode(10) +
-'.progress-bar { width: 100%; height: 30px; background: #e0e0e0; border-radius: 15px; overflow: hidden; margin-bottom: 10px; }' + String.fromCharCode(10) +
-'.progress-fill { height: 100%; background: linear-gradient(90deg, #667eea 0%, #764ba2 100%); width: 0%; transition: width 0.3s; }' + String.fromCharCode(10) +
-'.progress-text { text-align: center; color: #666; }' + String.fromCharCode(10) +
-'.success-icon { font-size: 4em; text-align: center; margin: 20px 0; }' + String.fromCharCode(10) +
-'.install-path { background: #f5f5f5; padding: 15px; border-radius: 6px; font-family: monospace; word-break: break-all; margin: 20px 0; }' + String.fromCharCode(10) +
+'.btn-secondary { background: #3A3A3A; color: #FFFFFF; box-shadow: 0 2px 8px rgba(0,0,0,0.3); border: 1px solid #464646; }' + String.fromCharCode(10) +
+'.btn-secondary:hover { background: #464646; transform: translateY(-1px); }' + String.fromCharCode(10) +
+'.btn-success { background: #464646; color: #FFFFFF; box-shadow: 0 4px 15px rgba(0,0,0,0.3); border: 1px solid #5A5A5A; }' + String.fromCharCode(10) +
+'.btn-success:hover { background: #5A5A5A; transform: translateY(-2px); box-shadow: 0 6px 20px rgba(0,0,0,0.4); }' + String.fromCharCode(10) +
+'.button-group { display: flex; gap: 10px; margin-top: 20px; justify-content: space-between; }' + String.fromCharCode(10) +
+'.progress-container { margin: 20px 0; }' + String.fromCharCode(10) +
+'.progress-bar { width: 100%; height: 28px; background: #121212; border-radius: 14px; overflow: hidden; margin-bottom: 10px; box-shadow: inset 0 2px 4px rgba(0,0,0,0.5); position: relative; border: 1px solid #464646; }' + String.fromCharCode(10) +
+'.progress-fill { height: 100%; background: #464646; width: 0%; transition: width 0.5s ease-out; position: relative; overflow: hidden; }' + String.fromCharCode(10) +
+'.progress-fill::after { content: ""; position: absolute; top: 0; left: 0; bottom: 0; right: 0; background: linear-gradient(90deg, transparent, rgba(255,255,255,0.1), transparent); animation: shimmer 2s infinite; }' + String.fromCharCode(10) +
+'@keyframes shimmer { 0% { transform: translateX(-100%); } 100% { transform: translateX(100%); } }' + String.fromCharCode(10) +
+'.progress-text { text-align: center; color: #B0B0B0; font-weight: 500; font-size: 0.9em; }' + String.fromCharCode(10) +
+'.success-icon { font-size: 3.5em; text-align: center; margin: 15px 0; animation: scaleIn 0.5s ease-out; }' + String.fromCharCode(10) +
+'@keyframes scaleIn { 0% { transform: scale(0); } 50% { transform: scale(1.1); } 100% { transform: scale(1); } }' + String.fromCharCode(10) +
+'.error-icon { font-size: 3.5em; text-align: center; margin: 15px 0; animation: shake 0.5s ease-out; }' + String.fromCharCode(10) +
+'@keyframes shake { 0%, 100% { transform: translateX(0); } 25% { transform: translateX(-10px); } 75% { transform: translateX(10px); } }' + String.fromCharCode(10) +
+'.install-path { background: linear-gradient(135deg, #f7fafc 0%, #edf2f7 100%); padding: 12px; border-radius: 6px; font-family: "Consolas", "Monaco", monospace; word-break: break-all; margin: 15px 0; border: 2px solid #e2e8f0; color: #2d3748; font-size: 0.85em; }' + String.fromCharCode(10) +
+'.step-indicator { display: flex; justify-content: center; gap: 8px; margin-bottom: 20px; }' + String.fromCharCode(10) +
+'.step-dot { width: 12px; height: 12px; border-radius: 50%; background: #464646; transition: all 0.3s; }' + String.fromCharCode(10) +
+'.step-dot.active { background: #B0B0B0; width: 32px; border-radius: 6px; }' + String.fromCharCode(10) +
+'.step-dot.completed { background: #B0B0B0; }' + String.fromCharCode(10) +
 '</style>' + String.fromCharCode(10) +
 '</head>' + String.fromCharCode(10) +
 '<body>' + String.fromCharCode(10) +
 '<div class="container">' + String.fromCharCode(10) +
 '<div class="header"><h1>📦 ' + (appName || "Package").replace(/</g, "&lt;").replace(/>/g, "&gt;") + '</h1><p class="subtitle">Installation Wizard</p></div>' + String.fromCharCode(10) +
 '<div class="content">' + String.fromCharCode(10) +
-'<div id="welcome-step" class="step active"><h2>Welcome</h2><p>This wizard will guide you through the installation process.</p><p><strong>Application:</strong> ' + (appName || "Package").replace(/</g, "&lt;").replace(/>/g, "&gt;") + '</p><p><strong>Package Size:</strong> <span id="packageSize">' + formatBytes(embeddedArchiveSize) + '</span></p><button class="btn btn-primary" id="welcomeNextBtn" onclick="nextStep()" style="cursor: pointer; opacity: 1;">Next →</button></div>' + String.fromCharCode(10) +
-'<div id="directory-step" class="step"><h2>Choose Installation Location</h2><p>Select the folder where you want to install the files:</p><div class="input-group"><input type="text" id="installPath" class="path-input" placeholder="Select installation directory..." readonly><button class="btn btn-primary" id="browseBtn" onclick="selectFolder()">Browse</button></div><div class="button-group"><button class="btn btn-secondary" id="dirBackBtn" onclick="prevStep()">← Back</button><button class="btn btn-primary" id="nextBtn" onclick="nextStep()" disabled>Next →</button></div></div>' + String.fromCharCode(10) +
-'<div id="installing-step" class="step"><h2>Installing</h2><p>Please wait while files are being extracted...</p><div class="progress-container"><div class="progress-bar"><div id="progressFill" class="progress-fill"></div></div><p id="progressText" class="progress-text">Preparing...</p></div></div>' + String.fromCharCode(10) +
-'<div id="complete-step" class="step"><h2>Installation Complete!</h2><div class="success-icon">✅</div><p>Files have been successfully extracted to:</p><p class="install-path" id="finalPath"></p><button class="btn btn-success" onclick="openFolder()">Open Installation Folder</button><button class="btn btn-primary" onclick="closeInstaller()">Finish</button></div>' + String.fromCharCode(10) +
-'<div id="error-step" class="step"><h2>Installation Failed</h2><div class="success-icon">❌</div><p id="errorMessage"></p><button class="btn btn-primary" onclick="showStep(1)">Try Again</button></div>' + String.fromCharCode(10) +
+'<div class="step-indicator"><div class="step-dot active" id="dot0"></div><div class="step-dot" id="dot1"></div><div class="step-dot" id="dot2"></div><div class="step-dot" id="dot3"></div></div>' + String.fromCharCode(10) +
+'<div id="welcome-step" class="step active"><h2>Welcome</h2><p>Thank you for choosing ' + (appName || "this package").replace(/</g, "&lt;").replace(/>/g, "&gt;") + '! This wizard will guide you through the installation process.</p><div class="info-box"><strong>📦 Application:</strong> ' + (appName || "Package").replace(/</g, "&lt;").replace(/>/g, "&gt;") + '<br><strong>💾 Package Size:</strong> <span id="packageSize">' + formatBytes(embeddedArchiveSize) + '</span></div><div style="text-align: center; margin-top: 30px;"><button class="btn btn-primary" id="welcomeNextBtn" onclick="nextStep()" style="cursor: pointer; opacity: 1; min-width: 150px;">Continue →</button></div></div>' + String.fromCharCode(10) +
+'<div id="directory-step" class="step"><h2>Choose Installation Location</h2><p>Please select the destination folder where you would like to install the files:</p><div class="input-group"><input type="text" id="installPath" class="path-input" placeholder="Click Browse to select a folder..." readonly><button class="btn btn-primary" id="browseBtn" onclick="selectFolder()" style="min-width: 120px;">📁 Browse</button></div><div class="button-group"><button class="btn btn-secondary" id="dirBackBtn" onclick="prevStep()">← Back</button><button class="btn btn-primary" id="nextBtn" onclick="nextStep()" disabled style="min-width: 150px;">Install →</button></div></div>' + String.fromCharCode(10) +
+'<div id="installing-step" class="step"><h2>Installing</h2><p style="margin-bottom: 15px;">Please wait while the files are being extracted...</p><div class="progress-container"><div class="progress-bar"><div id="progressFill" class="progress-fill"></div></div><p id="progressText" class="progress-text">Initializing...</p></div><p style="text-align: center; color: #718096; margin-top: 12px; font-size: 0.85em;">This may take a few moments.</p></div>' + String.fromCharCode(10) +
+'<div id="complete-step" class="step"><h2>Installation Complete! 🎉</h2><div class="success-icon">✅</div><p style="text-align: center; margin-bottom: 15px; font-size: 0.95em; color: #2d3748;">All files have been successfully installed to:</p><p class="install-path" id="finalPath"></p><div class="button-group" style="justify-content: center; margin-top: 20px;"><button class="btn btn-success" onclick="openFolder()" style="min-width: 160px;">📂 Open Folder</button><button class="btn btn-primary" onclick="closeInstaller()" style="min-width: 100px;">Finish</button></div></div>' + String.fromCharCode(10) +
+'<div id="error-step" class="step"><h2>Installation Failed</h2><div class="error-icon">❌</div><p id="errorMessage" style="text-align: center; color: #e53e3e; font-weight: 500; margin: 20px 0;"></p><div style="text-align: center; margin-top: 30px;"><button class="btn btn-primary" onclick="showStep(1)" style="min-width: 150px;">Try Again</button></div></div>' + String.fromCharCode(10) +
 '</div></div></div>' + String.fromCharCode(10) +
 '<script>' + String.fromCharCode(10) +
 'window.onerror = function(msg, url, line) {' + String.fromCharCode(10) +
 '  return true;' + String.fromCharCode(10) +
+'};' + String.fromCharCode(10) +
+'// Immediately resize window on load to prevent auto-sizing' + String.fromCharCode(10) +
+'(function() {' + String.fromCharCode(10) +
+'  try {' + String.fromCharCode(10) +
+'    window.resizeTo(900, 700);' + String.fromCharCode(10) +
+'    var centerX = (screen.availWidth / 2) - 450;' + String.fromCharCode(10) +
+'    var centerY = (screen.availHeight / 2) - 350;' + String.fromCharCode(10) +
+'    window.moveTo(centerX, centerY);' + String.fromCharCode(10) +
+'  } catch (e) {}' + String.fromCharCode(10) +
+'})();' + String.fromCharCode(10) +
+'window.onload = function() {' + String.fromCharCode(10) +
+'  try {' + String.fromCharCode(10) +
+'    window.resizeTo(900, 700);' + String.fromCharCode(10) +
+'    var centerX = (screen.availWidth / 2) - 450;' + String.fromCharCode(10) +
+'    var centerY = (screen.availHeight / 2) - 350;' + String.fromCharCode(10) +
+'    window.moveTo(centerX, centerY);' + String.fromCharCode(10) +
+'  } catch (e) {}' + String.fromCharCode(10) +
 '};' + String.fromCharCode(10) +
 'var currentStep = 0;' + String.fromCharCode(10) +
 'var selectedPath = null;' + String.fromCharCode(10) +
@@ -350,15 +475,15 @@ function generateGUIHTML() {
 'function startExtraction() {' + String.fromCharCode(10) +
 '  try {' + String.fromCharCode(10) +
 '    if (!selectedPath) {' + String.fromCharCode(10) +
-'      alert("No folder selected!");' + String.fromCharCode(10) +
+'      alert("Please select an installation folder first.");' + String.fromCharCode(10) +
 '      return;' + String.fromCharCode(10) +
 '    }' + String.fromCharCode(10) +
 '    if (!commFile || commFile === "undefined") {' + String.fromCharCode(10) +
-'      alert("Communication file path is undefined!");' + String.fromCharCode(10) +
+'      alert("An error occurred. Please try again.");' + String.fromCharCode(10) +
 '      return;' + String.fromCharCode(10) +
 '    }' + String.fromCharCode(10) +
 '    showStep(2);' + String.fromCharCode(10) +
-'    updateProgress(10, "Starting extraction...");' + String.fromCharCode(10) +
+'    updateProgress(15, "Preparing extraction...");' + String.fromCharCode(10) +
 '    var fso = new ActiveXObject("Scripting.FileSystemObject");' + String.fromCharCode(10) +
 '    var data = "EXTRACT|" + selectedPath;' + String.fromCharCode(10) +
 '    var folder = fso.GetParentFolderName(commFile);' + String.fromCharCode(10) +
@@ -368,16 +493,21 @@ function generateGUIHTML() {
 '    var file = fso.CreateTextFile(commFile, true);' + String.fromCharCode(10) +
 '    file.Write(data);' + String.fromCharCode(10) +
 '    file.Close();' + String.fromCharCode(10) +
-'    updateProgress(20, "Extraction request sent to: " + commFile);' + String.fromCharCode(10) +
+'    updateProgress(25, "Extracting files...");' + String.fromCharCode(10) +
 '  } catch (e) {' + String.fromCharCode(10) +
-'    alert("Error writing to communication file: " + e.message + "\\nFile: " + (commFile || "undefined"));' + String.fromCharCode(10) +
+'    alert("An error occurred: " + e.message);' + String.fromCharCode(10) +
 '    updateProgress(0, "Error: " + e.message);' + String.fromCharCode(10) +
 '  }' + String.fromCharCode(10) +
 '}' + String.fromCharCode(10) +
 'function updateProgress(percentage, text) {' + String.fromCharCode(10) +
 '  var fillEl = document.getElementById("progressFill");' + String.fromCharCode(10) +
 '  var textEl = document.getElementById("progressText");' + String.fromCharCode(10) +
-'  if (fillEl) fillEl.style.width = percentage + "%";' + String.fromCharCode(10) +
+'  if (fillEl) {' + String.fromCharCode(10) +
+'    fillEl.style.width = percentage + "%";' + String.fromCharCode(10) +
+'    if (percentage >= 100) {' + String.fromCharCode(10) +
+'      fillEl.style.background = "#5A5A5A";' + String.fromCharCode(10) +
+'    }' + String.fromCharCode(10) +
+'  }' + String.fromCharCode(10) +
 '  if (textEl) textEl.textContent = text;' + String.fromCharCode(10) +
 '}' + String.fromCharCode(10) +
 'function checkExtractionStatus() {' + String.fromCharCode(10) +
@@ -392,22 +522,22 @@ function generateGUIHTML() {
 '        return;' + String.fromCharCode(10) +
 '      }' + String.fromCharCode(10) +
 '      if (content.indexOf("EXTRACT|") === 0) {' + String.fromCharCode(10) +
-'        updateProgress(30, "Extraction in progress...");' + String.fromCharCode(10) +
+'        updateProgress(40, "Extracting files...");' + String.fromCharCode(10) +
 '        return;' + String.fromCharCode(10) +
 '      }' + String.fromCharCode(10) +
 '      if (content.indexOf("COMPLETE|") === 0) {' + String.fromCharCode(10) +
 '        var parts = content.split("|");' + String.fromCharCode(10) +
 '        if (parts.length >= 3 && parts[2] === "SUCCESS") {' + String.fromCharCode(10) +
-'          updateProgress(100, "Complete!");' + String.fromCharCode(10) +
+'          updateProgress(100, "Installation complete!");' + String.fromCharCode(10) +
 '          finalExtractionPath = parts[1];' + String.fromCharCode(10) +
 '          setTimeout(function() {' + String.fromCharCode(10) +
 '            var pathEl = document.getElementById("finalPath");' + String.fromCharCode(10) +
 '            if (pathEl) pathEl.textContent = finalExtractionPath;' + String.fromCharCode(10) +
 '            showStep(3);' + String.fromCharCode(10) +
-'          }, 500);' + String.fromCharCode(10) +
+'          }, 800);' + String.fromCharCode(10) +
 '        } else {' + String.fromCharCode(10) +
 '          var errorEl = document.getElementById("errorMessage");' + String.fromCharCode(10) +
-'          if (errorEl) errorEl.textContent = parts.length > 3 ? parts[3] : "Unknown error";' + String.fromCharCode(10) +
+'          if (errorEl) errorEl.textContent = parts.length > 3 ? parts[3] : "An unknown error occurred during installation.";' + String.fromCharCode(10) +
 '          showStep(4);' + String.fromCharCode(10) +
 '        }' + String.fromCharCode(10) +
 '      } else if (content.indexOf("CLOSE") === 0) {' + String.fromCharCode(10) +
@@ -435,8 +565,15 @@ function generateGUIHTML() {
 '  try {' + String.fromCharCode(10) +
 '    showStep(0);' + String.fromCharCode(10) +
 '    setInterval(checkExtractionStatus, 500);' + String.fromCharCode(10) +
+'    // Resize window to fit content properly' + String.fromCharCode(10) +
+'    try {' + String.fromCharCode(10) +
+'      window.resizeTo(900, 700);' + String.fromCharCode(10) +
+'      window.moveTo((screen.width / 2) - 450, (screen.height / 2) - 350);' + String.fromCharCode(10) +
+'    } catch (resizeError) {' + String.fromCharCode(10) +
+'      // Ignore resize errors' + String.fromCharCode(10) +
+'    }' + String.fromCharCode(10) +
 '  } catch (e) {' + String.fromCharCode(10) +
-'    alert("Error initializing GUI: " + e.message);' + String.fromCharCode(10) +
+'    // Silently handle errors' + String.fromCharCode(10) +
 '  }' + String.fromCharCode(10) +
 '}' + String.fromCharCode(10) +
 'setTimeout(function() {' + String.fromCharCode(10) +
@@ -467,7 +604,7 @@ try {
     try {
       fs.writeFileSync(path.join(os.tmpdir(), 'installer-error.txt'), errorMsg + String.fromCharCode(10) + 'This is a packaging error - the archive was not embedded.');
     } catch (e) {}
-    console.error(errorMsg);
+    // Don't use console.error - it creates console window
     // Don't exit - allow GUI to show so user can see the issue
   } else if (isEmpty && embeddedArchiveSize > 0) {
     // Archive size > 0 but base64 is empty - this is an error
@@ -475,36 +612,63 @@ try {
     try {
       fs.writeFileSync(path.join(os.tmpdir(), 'installer-error.txt'), errorMsg);
     } catch (e) {}
-    console.error(errorMsg);
+    // Don't use console.error - it creates console window
   } else if (isEmpty && embeddedArchiveSize === 0) {
     // Both are 0 - archive is intentionally empty
-    console.log('Note: Archive is empty (0 bytes). This installer contains no files to extract.');
+    // Don't use console.log - it creates console window
   }
 } catch (validationError) {
-  console.warn('Validation warning:', validationError.message);
+  // Don't use console.warn - it creates console window
+  // Log to file if needed
+  try {
+    fs.writeFileSync(path.join(os.tmpdir(), 'installer-warning.txt'), 'Validation warning: ' + validationError.message);
+  } catch (e) {}
   // Don't exit on validation warning - let GUI show
 }
 
-// Allocate console window immediately on Windows  
+// Hide console window on Windows immediately
 if (typeof process !== 'undefined' && process.platform === 'win32') {
   try {
-    require('child_process').execSync('cmd /c title Installer', { stdio: 'ignore', timeout: 1000 });
-  } catch (e) {}
+    const { execSync } = require('child_process');
+    const os = require('os');
+    // Hide console window using PowerShell and Windows API
+    const hideScript = `$code = '[DllImport("user32.dll")]public static extern bool ShowWindow(IntPtr hWnd,int nCmdShow);[DllImport("kernel32.dll")]public static extern IntPtr GetConsoleWindow();';$type = Add-Type -MemberDefinition $code -Name Win32ShowWindow -Namespace Console -PassThru;$type::ShowWindow($type::GetConsoleWindow(),0)`;
+    const tempPs = path.join(os.tmpdir(), `hide-console-${process.pid}.ps1`);
+    fs.writeFileSync(tempPs, hideScript, 'utf8');
+    execSync(`powershell -NoProfile -ExecutionPolicy Bypass -WindowStyle Hidden -File "${tempPs}"`, {
+      stdio: 'ignore',
+      timeout: 2000,
+      windowsHide: true
+    });
+    // Clean up temp file after a short delay
+    setTimeout(() => {
+      try { if (fs.existsSync(tempPs)) fs.unlinkSync(tempPs); } catch (e) {}
+    }, 500);
+  } catch (e) {
+    // Ignore errors - console hiding is optional
+  }
 }
 
 // Start the installer with native GUI window (mshta.exe)
 (async () => {
   try {
     if (process.platform !== 'win32') {
-      console.log('Native GUI is only supported on Windows. Using console interface.');
+      // Non-Windows: use file-based logging instead of console
+      try {
+        fs.writeFileSync(path.join(os.tmpdir(), 'installer-log.txt'), 'Native GUI is only supported on Windows. Using console interface.\n');
+      } catch (e) {}
       // Fallback to console on non-Windows
       const extractPath = selectFolderNative();
       if (extractPath) {
         const result = await extractFiles(extractPath);
         if (result.success) {
-          console.log('Installation complete! Files extracted to: ' + result.extractionPath);
+          try {
+            fs.writeFileSync(path.join(os.tmpdir(), 'installer-log.txt'), 'Installation complete! Files extracted to: ' + result.extractionPath + '\n');
+          } catch (e) {}
         } else {
-          console.error('Installation failed: ' + result.error);
+          try {
+            fs.writeFileSync(path.join(os.tmpdir(), 'installer-error.txt'), 'Installation failed: ' + result.error + '\n');
+          } catch (e) {}
           process.exit(1);
         }
       }
@@ -554,16 +718,10 @@ if (typeof process !== 'undefined' && process.platform === 'win32') {
       // Ignore
     }
     
-    console.log('Waiting for extraction request...');
-    console.log('Communication file:', commFile);
-    
-    // Poll for extraction request from GUI
+    // Poll for extraction request from GUI (console output removed for cleaner UI)
     let pollCount = 0;
     const checkInterval = setInterval(() => {
       pollCount++;
-      if (pollCount % 20 === 0) {
-        console.log('Still waiting... (polled', pollCount, 'times)');
-      }
       try {
         if (fs.existsSync(commFile)) {
           const content = fs.readFileSync(commFile, 'utf8').trim();
@@ -607,9 +765,11 @@ if (typeof process !== 'undefined' && process.platform === 'win32') {
     }, 600000);
     
   } catch (error) {
-    console.error(String.fromCharCode(10) + '❌ Failed to start installer:');
-    console.error('Error:', error.message);
-    console.error('Stack:', error.stack);
+    // Log to file instead of console to avoid creating console window
+    try {
+      fs.writeFileSync(path.join(os.tmpdir(), 'installer-error.txt'), 
+        'Failed to start installer:\nError: ' + error.message + '\nStack: ' + (error.stack || 'no stack') + '\n');
+    } catch (e) {}
     
     showErrorBox('Installer Error', 'An error occurred:' + String.fromCharCode(10) + String.fromCharCode(10) + error.message);
     

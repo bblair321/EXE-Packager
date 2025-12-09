@@ -1,0 +1,29 @@
+directories:
+  output: dist-gui
+  buildResources: build
+appId: com.exe-packager.gui
+productName: EXE Packager
+files:
+  - filter:
+      - gui/**/*
+      - scripts/**/*
+      - installer-gui-template.js
+      - configs/**/*
+      - package.json
+      - '!node_modules/**/{CHANGELOG.md,README.md,README,readme.md,readme}'
+      - '!node_modules/**/{test,__tests__,tests,powered-test,example,examples}'
+      - '!node_modules/**/*.d.ts'
+      - '!node_modules/**/.{bin,eslintrc,nyc_output}'
+      - '!**/node_modules/*/{CHANGELOG.md,README.md,README,readme.md,readme}'
+      - '!**/node_modules/*/{test,__tests__,tests,powered-test,example,examples}'
+      - '!**/node_modules/*.d.ts'
+      - '!**/node_modules/.{bin,eslintrc,nyc_output}'
+      - node_modules/**/*
+win:
+  target: portable
+  requestedExecutionLevel: asInvoker
+  signAndEditExecutable: false
+nsis:
+  oneClick: false
+  allowToChangeInstallationDirectory: true
+electronVersion: 28.3.3

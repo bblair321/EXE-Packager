@@ -2,6 +2,29 @@ const { app, BrowserWindow, dialog, ipcMain, shell } = require('electron');
 const path = require('path');
 const fs = require('fs');
 
+// Hide console window on Windows
+if (process.platform === 'win32') {
+  try {
+    const { execSync } = require('child_process');
+    const os = require('os');
+    // Create a PowerShell script to hide the console window using Windows API
+    const hideScript = `$code = '[DllImport("user32.dll")]public static extern bool ShowWindow(IntPtr hWnd,int nCmdShow);[DllImport("kernel32.dll")]public static extern IntPtr GetConsoleWindow();';$type = Add-Type -MemberDefinition $code -Name Win32ShowWindow -Namespace Console -PassThru;$type::ShowWindow($type::GetConsoleWindow(),0)`;
+    const tempPs = path.join(os.tmpdir(), `hide-console-${process.pid}.ps1`);
+    fs.writeFileSync(tempPs, hideScript, 'utf8');
+    execSync(`powershell -NoProfile -ExecutionPolicy Bypass -WindowStyle Hidden -File "${tempPs}"`, {
+      stdio: 'ignore',
+      timeout: 2000,
+      windowsHide: true
+    });
+    // Clean up temp file after a short delay
+    setTimeout(() => {
+      try { if (fs.existsSync(tempPs)) fs.unlinkSync(tempPs); } catch (e) {}
+    }, 500);
+  } catch (e) {
+    // Ignore errors - console hiding is optional
+  }
+}
+
 // Keep a global reference of the window object
 let mainWindow;
 

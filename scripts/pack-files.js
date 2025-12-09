@@ -566,10 +566,144 @@ class FilePacker {
           "max_old_space_size=4096",
         ];
         execSync(pkgCmd.join(" "), { stdio: "inherit" });
+        
+        // Small delay to ensure file is fully written and not locked
+        await new Promise(resolve => setTimeout(resolve, 1000));
+        
+        // Convert executable from console to windowed application (hide console window)
+        // Use rcedit to change subsystem from CONSOLE to WINDOWS
+        if (process.platform === 'win32') {
+          // Ensure we have absolute path - pkg adds .exe extension automatically
+          let absoluteOutputPath = path.resolve(originalCwd, outputPath);
+          if (!absoluteOutputPath.endsWith('.exe')) {
+            absoluteOutputPath += '.exe';
+          }
+          
+          console.log('Looking for executable at:', absoluteOutputPath);
+          console.log('File exists:', fs.existsSync(absoluteOutputPath));
+          
+          if (!fs.existsSync(absoluteOutputPath)) {
+            console.warn('⚠️  Warning: Executable not found at:', absoluteOutputPath);
+            console.warn('Trying alternative paths...');
+            // Try without .exe extension
+            const altPath = absoluteOutputPath.replace(/\.exe$/, '');
+            if (fs.existsSync(altPath)) {
+              absoluteOutputPath = altPath;
+              console.log('Found executable at:', absoluteOutputPath);
+            } else {
+              console.warn('Cannot modify subsystem. Console window will appear.');
+              console.warn('Searched paths:', [absoluteOutputPath, altPath]);
+            }
+          }
+          
+          if (fs.existsSync(absoluteOutputPath)) {
+            pkgSpinner.text = '🔧 Converting to windowed application...';
+            let subsystemChanged = false;
+            
+            console.log('Modifying executable subsystem:', absoluteOutputPath);
+            console.log('File size:', fs.statSync(absoluteOutputPath).size, 'bytes');
+            
+            // Method 1: Try PowerShell PE header modification (most reliable)
+            try {
+              console.log('Using PowerShell to modify PE header...');
+                const psScript = `
+$filePath = "${absoluteOutputPath.replace(/\\/g, '\\\\')}"
+try {
+  $bytes = [System.IO.File]::ReadAllBytes($filePath)
+  $peOffset = [BitConverter]::ToInt32($bytes, 60)
+  if ($peOffset -lt $bytes.Length - 100) {
+    $subsystemOffset = $peOffset + 92
+    if ($subsystemOffset -lt $bytes.Length) {
+      $currentSubsystem = $bytes[$subsystemOffset]
+      if ($currentSubsystem -eq 3) {
+        $bytes[$subsystemOffset] = 2
+        [System.IO.File]::WriteAllBytes($filePath, $bytes)
+        Write-Output "SUCCESS: Changed subsystem from 3 (CONSOLE) to 2 (WINDOWS)"
+        } else {
+        Write-Output "INFO: Subsystem is already $currentSubsystem (not CONSOLE)"
+      }
+    }
+  }
+} catch {
+  Write-Error "Failed: $_"
+  exit 1
+}
+                `.trim();
+                const tempPs = path.join(os.tmpdir(), `set-subsystem-${Date.now()}.ps1`);
+                fs.writeFileSync(tempPs, psScript, 'utf8');
+                const result = execSync(`powershell -NoProfile -ExecutionPolicy Bypass -WindowStyle Hidden -File "${tempPs}"`, {
+                  encoding: 'utf8',
+                  timeout: 5000,
+                  windowsHide: true
+                });
+                console.log('PowerShell result:', result.trim());
+                subsystemChanged = true;
+                setTimeout(() => {
+                  try { if (fs.existsSync(tempPs)) fs.unlinkSync(tempPs); } catch (e) {}
+                }, 1000);
+              } catch (psError) {
+                console.error('❌ PowerShell method failed!');
+                console.error('PowerShell error:', psError.message);
+                if (psError.stdout) console.error('stdout:', psError.stdout);
+                if (psError.stderr) console.error('stderr:', psError.stderr);
+                
+                // Fallback: Try rcedit module
+                console.log('Trying rcedit as fallback...');
+                try {
+                  const rcedit = require('rcedit');
+                  await rcedit(absoluteOutputPath, {
+                    'set-subsystem': 'windows'
+                  });
+                  subsystemChanged = true;
+                  console.log('✅ Converted executable to windowed application using rcedit (fallback)');
+                } catch (rceditError) {
+                  console.error('❌ Both PowerShell and rcedit methods failed!');
+                  console.error('rcedit error:', rceditError.message);
+                  console.error('The executable will show a console window.');
+                }
+              }
+            
+            // Verify the change worked
+            if (subsystemChanged) {
+              // Wait a bit for file system to sync
+              await new Promise(resolve => setTimeout(resolve, 200));
+              try {
+                const verifyScript = `
+$filePath = "${absoluteOutputPath.replace(/\\/g, '\\\\')}"
+$bytes = [System.IO.File]::ReadAllBytes($filePath)
+$peOffset = [BitConverter]::ToInt32($bytes, 60)
+$subsystemOffset = $peOffset + 92
+$subsystem = $bytes[$subsystemOffset]
+if ($subsystem -eq 2) {
+  Write-Output "VERIFIED: Subsystem is WINDOWS (2)"
+  } else {
+  Write-Output "WARNING: Subsystem is $subsystem (expected 2 for WINDOWS)"
+}
+                `.trim();
+                const verifyPs = path.join(os.tmpdir(), `verify-subsystem-${Date.now()}.ps1`);
+                fs.writeFileSync(verifyPs, verifyScript, 'utf8');
+                const verifyResult = execSync(`powershell -NoProfile -ExecutionPolicy Bypass -WindowStyle Hidden -File "${verifyPs}"`, {
+                  encoding: 'utf8',
+                  timeout: 2000,
+                  windowsHide: true
+                });
+                console.log('Verification:', verifyResult.trim());
+  setTimeout(() => {
+                  try { if (fs.existsSync(verifyPs)) fs.unlinkSync(verifyPs); } catch (e) {}
+                }, 1000);
+              } catch (verifyError) {
+                // Ignore verification errors
+              }
+            } else {
+              console.warn('⚠️  Warning: Subsystem modification was not successful. Console window will appear.');
+            }
+          }
+        }
       } finally {
         // Restore original working directory
         process.chdir(originalCwd);
       }
+      
       pkgSpinner.succeed("✅ Executable created successfully");
     } catch (error) {
       pkgSpinner.fail("❌ Executable creation failed");
