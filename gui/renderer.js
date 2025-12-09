@@ -16,6 +16,9 @@ const progressText = document.getElementById('progressText');
 const resultContainer = document.getElementById('resultContainer');
 const resultMessage = document.getElementById('resultMessage');
 const openFolderBtn = document.getElementById('openFolderBtn');
+const minimizeBtn = document.getElementById('minimizeBtn');
+const maximizeBtn = document.getElementById('maximizeBtn');
+const closeBtn = document.getElementById('closeBtn');
 
 let selectedFolder = null;
 let outputDirectory = './dist';
@@ -164,6 +167,31 @@ function showError(message) {
   resultMessage.innerHTML = '❌ ' + message;
   resultContainer.style.display = 'block';
 }
+
+// Window controls
+minimizeBtn.addEventListener('click', () => {
+  window.electronAPI.windowMinimize();
+});
+
+maximizeBtn.addEventListener('click', () => {
+  window.electronAPI.windowMaximize().then(() => {
+    // Update button icon based on window state
+    window.electronAPI.windowIsMaximized().then(isMaximized => {
+      maximizeBtn.textContent = isMaximized ? '❐' : '□';
+    });
+  });
+});
+
+closeBtn.addEventListener('click', () => {
+  window.electronAPI.windowClose();
+});
+
+// Update maximize button icon on window resize
+window.addEventListener('resize', () => {
+  window.electronAPI.windowIsMaximized().then(isMaximized => {
+    maximizeBtn.textContent = isMaximized ? '❐' : '□';
+  });
+});
 
 // Initialize
 updateCreateButton();

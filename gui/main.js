@@ -35,6 +35,9 @@ function createWindow() {
     height: 700,
     minWidth: 800,
     minHeight: 600,
+    frame: false, // Remove default title bar for custom controls
+    transparent: false, // Keep solid background
+    autoHideMenuBar: true, // Hide the menu bar (File/Edit/View)
     webPreferences: {
       nodeIntegration: false,
       contextIsolation: true,
@@ -111,6 +114,33 @@ ipcMain.handle('open-folder', async (event, folderPath) => {
   } catch (error) {
     return { success: false, error: error.message };
   }
+});
+
+// Window control handlers
+ipcMain.handle('window-minimize', () => {
+  const window = BrowserWindow.getFocusedWindow();
+  if (window) window.minimize();
+});
+
+ipcMain.handle('window-maximize', () => {
+  const window = BrowserWindow.getFocusedWindow();
+  if (window) {
+    if (window.isMaximized()) {
+      window.unmaximize();
+    } else {
+      window.maximize();
+    }
+  }
+});
+
+ipcMain.handle('window-close', () => {
+  const window = BrowserWindow.getFocusedWindow();
+  if (window) window.close();
+});
+
+ipcMain.handle('window-is-maximized', () => {
+  const window = BrowserWindow.getFocusedWindow();
+  return window ? window.isMaximized() : false;
 });
 
 ipcMain.handle('create-installer', async (event, options) => {

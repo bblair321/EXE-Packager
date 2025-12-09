@@ -8,6 +8,10 @@ contextBridge.exposeInMainWorld('electronAPI', {
   selectOutputFolder: () => ipcRenderer.invoke('select-output-folder'),
   createInstaller: (options) => ipcRenderer.invoke('create-installer', options),
   openFolder: (folderPath) => ipcRenderer.invoke('open-folder', folderPath),
+  windowMinimize: () => ipcRenderer.invoke('window-minimize'),
+  windowMaximize: () => ipcRenderer.invoke('window-maximize'),
+  windowClose: () => ipcRenderer.invoke('window-close'),
+  windowIsMaximized: () => ipcRenderer.invoke('window-is-maximized'),
   onPackagingProgress: (callback) => {
     ipcRenderer.on('packaging-progress', (event, progress) => callback(progress));
   },
