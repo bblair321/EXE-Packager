@@ -302,69 +302,68 @@ function generateGUIHTML() {
 '<html>' + String.fromCharCode(10) +
 '<head>' + String.fromCharCode(10) +
 '<meta charset="UTF-8">' + String.fromCharCode(10) +
+'<meta http-equiv="X-UA-Compatible" content="IE=10">' + String.fromCharCode(10) +
 '<title>' + appName + ' - Installer</title>' + String.fromCharCode(10) +
 '<HTA:APPLICATION ID="Installer" APPLICATIONNAME="' + (appName || "Installer").replace(/"/g, "&quot;") + ' Installer" BORDER="thin" BORDERSTYLE="fixed" CAPTION="yes" ICON="" MAXIMIZEBUTTON="no" MINIMIZEBUTTON="yes" SHOWINTASKBAR="yes" SINGLEINSTANCE="yes" SYSMENU="yes" VERSION="1.0" WINDOWSTATE="normal" SCROLL="no" ERROR="no" WIDTH="900" HEIGHT="700" />' + String.fromCharCode(10) +
 '<style>' + String.fromCharCode(10) +
-'html, body { width: 100%; height: 100%; margin: 0; padding: 0; overflow: hidden; }' + String.fromCharCode(10) +
+'html, body { width: 100%; height: 100%; margin: 0; padding: 0; overflow: hidden; scrollbar-width: none; -ms-overflow-style: none; }' + String.fromCharCode(10) +
+'*::-webkit-scrollbar { display: none; }' + String.fromCharCode(10) +
 '* { margin: 0; padding: 0; box-sizing: border-box; }' + String.fromCharCode(10) +
-'body { font-family: "Segoe UI", -apple-system, BlinkMacSystemFont, "Roboto", "Oxygen", "Ubuntu", "Cantarell", sans-serif; background: #121212; margin: 0; padding: 0; display: block; overflow: hidden; width: 900px; height: 700px; }' + String.fromCharCode(10) +
-'.container { background: #2C2C2C; border-radius: 0; box-shadow: none; width: 900px; height: 700px; overflow: hidden; animation: slideIn 0.4s ease-out; border: none; display: flex; flex-direction: column; }' + String.fromCharCode(10) +
-'@keyframes slideIn { from { opacity: 0; transform: translateY(-20px); } to { opacity: 1; transform: translateY(0); } }' + String.fromCharCode(10) +
-'.header { background: #464646; color: #FFFFFF; padding: 20px 15px; text-align: center; position: relative; overflow: hidden; border-bottom: 1px solid #121212; height: 100px; flex-shrink: 0; }' + String.fromCharCode(10) +
-'.header h1 { font-size: 1.5em; margin-bottom: 3px; font-weight: 700; position: relative; z-index: 1; color: #FFFFFF; }' + String.fromCharCode(10) +
-'.subtitle { opacity: 0.85; font-size: 0.95em; position: relative; z-index: 1; color: #B0B0B0; }' + String.fromCharCode(10) +
-'.content { padding: 20px; background: #2C2C2C; flex: 1; overflow-y: auto; overflow-x: hidden; min-height: 0; }' + String.fromCharCode(10) +
-'.step { display: none; animation: fadeIn 0.3s ease-in; }' + String.fromCharCode(10) +
-'@keyframes fadeIn { from { opacity: 0; } to { opacity: 1; } }' + String.fromCharCode(10) +
+'body { font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif; margin: 0; padding: 0; display: block; overflow: hidden; width: 900px; height: 700px; background: #6B73D9 !important; }' + String.fromCharCode(10) +
+'.container { background: #6B73D9 !important; -webkit-border-radius: 16px; -moz-border-radius: 16px; -ms-border-radius: 16px; border-radius: 16px; box-shadow: 0 10px 40px rgba(0,0,0,0.3); width: 900px !important; height: 700px !important; overflow: hidden; animation: slideIn 0.3s ease-out; border: none; display: flex; flex-direction: column; position: relative; margin: 0; padding: 0; }' + String.fromCharCode(10) +
+'@keyframes slideIn { from { opacity: 0; transform: translateY(10px); } to { opacity: 1; transform: translateY(0); } }' + String.fromCharCode(10) +
+'.header { background: transparent; color: white; padding: 30px; padding-top: 50px; text-align: center; height: auto; flex-shrink: 0; position: relative; -webkit-border-radius: 16px 16px 0 0; -moz-border-radius: 16px 16px 0 0; -ms-border-radius: 16px 16px 0 0; border-radius: 16px 16px 0 0; }' + String.fromCharCode(10) +
+'.header h1 { font-size: 2.5em; margin-bottom: 10px; font-weight: 700; color: white; }' + String.fromCharCode(10) +
+'.subtitle { font-size: 1.1em; opacity: 0.9; color: white; font-weight: 400; }' + String.fromCharCode(10) +
+'.content { padding: 40px; background: white; flex: 1; overflow-y: auto; overflow-x: hidden; min-height: 0; margin: 0 0 0 0; -webkit-border-radius: 0 0 16px 16px; -moz-border-radius: 0 0 16px 16px; -ms-border-radius: 0 0 16px 16px; border-radius: 0 0 16px 16px; }' + String.fromCharCode(10) +
+'.step { display: none; animation: fadeIn 0.4s cubic-bezier(0.16, 1, 0.3, 1); }' + String.fromCharCode(10) +
+'@keyframes fadeIn { from { opacity: 0; transform: translateX(20px); } to { opacity: 1; transform: translateX(0); } }' + String.fromCharCode(10) +
 '.step.active { display: block; }' + String.fromCharCode(10) +
-'.step h2 { margin-bottom: 15px; color: #FFFFFF; font-size: 1.5em; font-weight: 600; }' + String.fromCharCode(10) +
-'.step p { margin-bottom: 12px; color: #B0B0B0; line-height: 1.6; font-size: 0.95em; }' + String.fromCharCode(10) +
-'.info-box { background: #464646; border-left: 4px solid #B0B0B0; padding: 12px; border-radius: 6px; margin: 15px 0; border: 1px solid #3A3A3A; }' + String.fromCharCode(10) +
-'.info-box strong { color: #FFFFFF; display: block; margin-bottom: 5px; font-size: 0.95em; }' + String.fromCharCode(10) +
-'.info-box span { color: #FFFFFF; font-weight: 600; }' + String.fromCharCode(10) +
-'.input-group { display: flex; gap: 10px; margin: 15px 0; }' + String.fromCharCode(10) +
-'.path-input { flex: 1; padding: 10px 12px; border: 2px solid #464646; border-radius: 6px; font-size: 0.9em; background: #121212; color: #FFFFFF; transition: all 0.3s; }' + String.fromCharCode(10) +
-'.path-input:focus { outline: none; border-color: #B0B0B0; background: #1A1A1A; box-shadow: 0 0 0 3px rgba(176,176,176,0.1); }' + String.fromCharCode(10) +
-'.btn { padding: 10px 20px; border: none; border-radius: 6px; font-size: 0.95em; font-weight: 600; cursor: pointer; transition: all 0.3s ease; position: relative; overflow: hidden; }' + String.fromCharCode(10) +
-'.btn::before { content: ""; position: absolute; top: 50%; left: 50%; width: 0; height: 0; border-radius: 50%; background: rgba(255,255,255,0.3); transform: translate(-50%, -50%); transition: width 0.6s, height 0.6s; }' + String.fromCharCode(10) +
-'.btn:active::before { width: 300px; height: 300px; }' + String.fromCharCode(10) +
-'.btn-primary { background: #464646; color: #FFFFFF; box-shadow: 0 4px 15px rgba(0,0,0,0.3); border: 1px solid #5A5A5A; }' + String.fromCharCode(10) +
-'.btn-primary:hover:not(:disabled) { background: #5A5A5A; transform: translateY(-2px); box-shadow: 0 6px 20px rgba(0,0,0,0.4); }' + String.fromCharCode(10) +
-'.btn-primary:active { transform: translateY(0); background: #3A3A3A; }' + String.fromCharCode(10) +
-'.btn-primary:disabled { opacity: 0.5; cursor: not-allowed; transform: none; background: #3A3A3A; }' + String.fromCharCode(10) +
+'.step { margin-bottom: 40px; animation: fadeIn 0.3s ease-out; }' + String.fromCharCode(10) +
+'@keyframes fadeIn { from { opacity: 0; transform: translateY(10px); } to { opacity: 1; transform: translateY(0); } }' + String.fromCharCode(10) +
+'.step h2 { font-size: 1.5em; margin-bottom: 20px; color: #333; border-bottom: 2px solid #667eea; padding-bottom: 10px; font-weight: 600; border-radius: 4px; }' + String.fromCharCode(10) +
+'.step p { margin-bottom: 20px; color: #666; line-height: 1.6; font-size: 1em; }' + String.fromCharCode(10) +
+'.info-box { background: #f8f9fa; border: 1px solid #e0e0e0; padding: 20px; -webkit-border-radius: 12px; -moz-border-radius: 12px; -ms-border-radius: 12px; border-radius: 12px; margin: 20px 0; }' + String.fromCharCode(10) +
+'.info-box strong { color: #555; display: block; margin-bottom: 8px; font-size: 0.95em; font-weight: 600; }' + String.fromCharCode(10) +
+'.info-box span { color: #333; font-weight: 600; }' + String.fromCharCode(10) +
+'.input-group { display: flex; gap: 10px; margin: 20px 0; }' + String.fromCharCode(10) +
+'.path-input { flex: 1; padding: 12px 16px; border: 2px solid #e0e0e0; -webkit-border-radius: 12px; -moz-border-radius: 12px; -ms-border-radius: 12px; border-radius: 12px; font-size: 1em; background: white; color: #333; transition: border-color 0.3s; font-family: "Segoe UI", sans-serif; }' + String.fromCharCode(10) +
+'.path-input:focus { outline: none; border-color: #667eea; }' + String.fromCharCode(10) +
+'.path-input[readonly] { background-color: #f5f5f5; cursor: pointer; }' + String.fromCharCode(10) +
+'.btn { padding: 12px 24px; border: none; -webkit-border-radius: 20px; -moz-border-radius: 20px; -ms-border-radius: 20px; border-radius: 20px; font-size: 1em; font-weight: 600; cursor: pointer; transition: all 0.3s; white-space: nowrap; }' + String.fromCharCode(10) +
+'.btn-primary { background: linear-gradient(135deg, #667eea 0%, #764ba2 100%); color: white; }' + String.fromCharCode(10) +
+'.btn-primary:hover:not(:disabled) { transform: translateY(-2px); box-shadow: 0 5px 15px rgba(102, 126, 234, 0.4); }' + String.fromCharCode(10) +
+'.btn-primary:disabled { opacity: 0.5; cursor: not-allowed; transform: none; }' + String.fromCharCode(10) +
 'button.btn-primary { opacity: 1 !important; cursor: pointer !important; }' + String.fromCharCode(10) +
-'.btn-secondary { background: #3A3A3A; color: #FFFFFF; box-shadow: 0 2px 8px rgba(0,0,0,0.3); border: 1px solid #464646; }' + String.fromCharCode(10) +
-'.btn-secondary:hover { background: #464646; transform: translateY(-1px); }' + String.fromCharCode(10) +
-'.btn-success { background: #464646; color: #FFFFFF; box-shadow: 0 4px 15px rgba(0,0,0,0.3); border: 1px solid #5A5A5A; }' + String.fromCharCode(10) +
-'.btn-success:hover { background: #5A5A5A; transform: translateY(-2px); box-shadow: 0 6px 20px rgba(0,0,0,0.4); }' + String.fromCharCode(10) +
-'.button-group { display: flex; gap: 10px; margin-top: 20px; justify-content: space-between; }' + String.fromCharCode(10) +
+'.btn-secondary { background: #6c757d; color: white; }' + String.fromCharCode(10) +
+'.btn-secondary:hover { background: #5a6268; }' + String.fromCharCode(10) +
+'.btn-success { background: #28a745; color: white; }' + String.fromCharCode(10) +
+'.btn-success:hover { background: #218838; }' + String.fromCharCode(10) +
+'.button-group { display: flex; gap: 12px; margin-top: 20px; justify-content: space-between; }' + String.fromCharCode(10) +
 '.progress-container { margin: 20px 0; }' + String.fromCharCode(10) +
-'.progress-bar { width: 100%; height: 28px; background: #121212; border-radius: 14px; overflow: hidden; margin-bottom: 10px; box-shadow: inset 0 2px 4px rgba(0,0,0,0.5); position: relative; border: 1px solid #464646; }' + String.fromCharCode(10) +
-'.progress-fill { height: 100%; background: #464646; width: 0%; transition: width 0.5s ease-out; position: relative; overflow: hidden; }' + String.fromCharCode(10) +
-'.progress-fill::after { content: ""; position: absolute; top: 0; left: 0; bottom: 0; right: 0; background: linear-gradient(90deg, transparent, rgba(255,255,255,0.1), transparent); animation: shimmer 2s infinite; }' + String.fromCharCode(10) +
-'@keyframes shimmer { 0% { transform: translateX(-100%); } 100% { transform: translateX(100%); } }' + String.fromCharCode(10) +
-'.progress-text { text-align: center; color: #B0B0B0; font-weight: 500; font-size: 0.9em; }' + String.fromCharCode(10) +
-'.success-icon { font-size: 3.5em; text-align: center; margin: 15px 0; animation: scaleIn 0.5s ease-out; }' + String.fromCharCode(10) +
-'@keyframes scaleIn { 0% { transform: scale(0); } 50% { transform: scale(1.1); } 100% { transform: scale(1); } }' + String.fromCharCode(10) +
-'.error-icon { font-size: 3.5em; text-align: center; margin: 15px 0; animation: shake 0.5s ease-out; }' + String.fromCharCode(10) +
-'@keyframes shake { 0%, 100% { transform: translateX(0); } 25% { transform: translateX(-10px); } 75% { transform: translateX(10px); } }' + String.fromCharCode(10) +
-'.install-path { background: linear-gradient(135deg, #f7fafc 0%, #edf2f7 100%); padding: 12px; border-radius: 6px; font-family: "Consolas", "Monaco", monospace; word-break: break-all; margin: 15px 0; border: 2px solid #e2e8f0; color: #2d3748; font-size: 0.85em; }' + String.fromCharCode(10) +
-'.step-indicator { display: flex; justify-content: center; gap: 8px; margin-bottom: 20px; }' + String.fromCharCode(10) +
-'.step-dot { width: 12px; height: 12px; border-radius: 50%; background: #464646; transition: all 0.3s; }' + String.fromCharCode(10) +
-'.step-dot.active { background: #B0B0B0; width: 32px; border-radius: 6px; }' + String.fromCharCode(10) +
-'.step-dot.completed { background: #B0B0B0; }' + String.fromCharCode(10) +
+'.progress-bar { width: 100%; height: 30px; background: #e0e0e0; border-radius: 15px; overflow: hidden; margin-bottom: 10px; }' + String.fromCharCode(10) +
+'.progress-fill { height: 100%; background: linear-gradient(90deg, #667eea 0%, #764ba2 100%); width: 0%; transition: width 0.3s; border-radius: 15px; }' + String.fromCharCode(10) +
+'.progress-text { text-align: center; color: #666; font-size: 0.95em; }' + String.fromCharCode(10) +
+'.success-icon { font-size: 4em; text-align: center; margin: 20px 0; color: #28a745; font-weight: 300; }' + String.fromCharCode(10) +
+'.error-icon { font-size: 4em; text-align: center; margin: 20px 0; color: #dc3545; font-weight: 300; }' + String.fromCharCode(10) +
+'.install-path { background: #f8f9fa; padding: 15px; -webkit-border-radius: 12px; -moz-border-radius: 12px; -ms-border-radius: 12px; border-radius: 12px; font-family: "Consolas", "Monaco", "Courier New", monospace; word-break: break-all; margin: 20px 0; border: 1px solid #e0e0e0; color: #333; font-size: 0.9em; }' + String.fromCharCode(10) +
+'.step-indicator { display: flex; justify-content: center; gap: 10px; margin-bottom: 30px; align-items: center; }' + String.fromCharCode(10) +
+'.step-dot { width: 10px; height: 10px; border-radius: 50%; background: #e0e0e0; transition: all 0.3s; position: relative; }' + String.fromCharCode(10) +
+'.step-dot.active { background: linear-gradient(135deg, #667eea 0%, #764ba2 100%); width: 30px; border-radius: 5px; }' + String.fromCharCode(10) +
+'.step-dot.completed { background: #28a745; }' + String.fromCharCode(10) +
+'.step-dot.completed::after { content: "✓"; position: absolute; top: 50%; left: 50%; transform: translate(-50%, -50%); color: white; font-size: 8px; font-weight: bold; }' + String.fromCharCode(10) +
 '</style>' + String.fromCharCode(10) +
 '</head>' + String.fromCharCode(10) +
-'<body>' + String.fromCharCode(10) +
-'<div class="container">' + String.fromCharCode(10) +
-'<div class="header"><h1>📦 ' + (appName || "Package").replace(/</g, "&lt;").replace(/>/g, "&gt;") + '</h1><p class="subtitle">Installation Wizard</p></div>' + String.fromCharCode(10) +
+'<body style="background: #6B73D9; margin: 0; padding: 0; width: 900px; height: 700px;">' + String.fromCharCode(10) +
+'<div class="container" style="background: #6B73D9 !important; width: 900px !important; height: 700px !important; margin: 0 !important; padding: 0 !important; position: absolute !important; top: 0 !important; left: 0 !important; -webkit-border-radius: 16px !important; -moz-border-radius: 16px !important; -ms-border-radius: 16px !important; border-radius: 16px !important;">' + String.fromCharCode(10) +
+'<div class="header"><h1>' + (appName || "Package").replace(/</g, "&lt;").replace(/>/g, "&gt;") + '</h1><p class="subtitle">Installation Wizard</p></div>' + String.fromCharCode(10) +
 '<div class="content">' + String.fromCharCode(10) +
 '<div class="step-indicator"><div class="step-dot active" id="dot0"></div><div class="step-dot" id="dot1"></div><div class="step-dot" id="dot2"></div><div class="step-dot" id="dot3"></div></div>' + String.fromCharCode(10) +
-'<div id="welcome-step" class="step active"><h2>Welcome</h2><p>Thank you for choosing ' + (appName || "this package").replace(/</g, "&lt;").replace(/>/g, "&gt;") + '! This wizard will guide you through the installation process.</p><div class="info-box"><strong>📦 Application:</strong> ' + (appName || "Package").replace(/</g, "&lt;").replace(/>/g, "&gt;") + '<br><strong>💾 Package Size:</strong> <span id="packageSize">' + formatBytes(embeddedArchiveSize) + '</span></div><div style="text-align: center; margin-top: 30px;"><button class="btn btn-primary" id="welcomeNextBtn" onclick="nextStep()" style="cursor: pointer; opacity: 1; min-width: 150px;">Continue →</button></div></div>' + String.fromCharCode(10) +
-'<div id="directory-step" class="step"><h2>Choose Installation Location</h2><p>Please select the destination folder where you would like to install the files:</p><div class="input-group"><input type="text" id="installPath" class="path-input" placeholder="Click Browse to select a folder..." readonly><button class="btn btn-primary" id="browseBtn" onclick="selectFolder()" style="min-width: 120px;">📁 Browse</button></div><div class="button-group"><button class="btn btn-secondary" id="dirBackBtn" onclick="prevStep()">← Back</button><button class="btn btn-primary" id="nextBtn" onclick="nextStep()" disabled style="min-width: 150px;">Install →</button></div></div>' + String.fromCharCode(10) +
-'<div id="installing-step" class="step"><h2>Installing</h2><p style="margin-bottom: 15px;">Please wait while the files are being extracted...</p><div class="progress-container"><div class="progress-bar"><div id="progressFill" class="progress-fill"></div></div><p id="progressText" class="progress-text">Initializing...</p></div><p style="text-align: center; color: #718096; margin-top: 12px; font-size: 0.85em;">This may take a few moments.</p></div>' + String.fromCharCode(10) +
-'<div id="complete-step" class="step"><h2>Installation Complete! 🎉</h2><div class="success-icon">✅</div><p style="text-align: center; margin-bottom: 15px; font-size: 0.95em; color: #2d3748;">All files have been successfully installed to:</p><p class="install-path" id="finalPath"></p><div class="button-group" style="justify-content: center; margin-top: 20px;"><button class="btn btn-success" onclick="openFolder()" style="min-width: 160px;">📂 Open Folder</button><button class="btn btn-primary" onclick="closeInstaller()" style="min-width: 100px;">Finish</button></div></div>' + String.fromCharCode(10) +
-'<div id="error-step" class="step"><h2>Installation Failed</h2><div class="error-icon">❌</div><p id="errorMessage" style="text-align: center; color: #e53e3e; font-weight: 500; margin: 20px 0;"></p><div style="text-align: center; margin-top: 30px;"><button class="btn btn-primary" onclick="showStep(1)" style="min-width: 150px;">Try Again</button></div></div>' + String.fromCharCode(10) +
+'<div id="welcome-step" class="step active"><h2>Welcome</h2><p>Thank you for choosing ' + (appName || "this package").replace(/</g, "&lt;").replace(/>/g, "&gt;") + '. This wizard will guide you through the installation process.</p><div class="info-box" style="-webkit-border-radius: 12px; -moz-border-radius: 12px; -ms-border-radius: 12px; border-radius: 12px;"><strong>Application:</strong> ' + (appName || "Package").replace(/</g, "&lt;").replace(/>/g, "&gt;") + '<br><strong>Package Size:</strong> <span id="packageSize">' + formatBytes(embeddedArchiveSize) + '</span></div><div style="text-align: center; margin-top: 30px;"><button class="btn btn-primary" id="welcomeNextBtn" onclick="nextStep()" style="cursor: pointer; opacity: 1; min-width: 150px; -webkit-border-radius: 20px; -moz-border-radius: 20px; -ms-border-radius: 20px; border-radius: 20px;">Continue</button></div></div>' + String.fromCharCode(10) +
+'<div id="directory-step" class="step"><h2>Choose Installation Location</h2><p>Please select the destination folder where you would like to install the files.</p><div class="input-group"><input type="text" id="installPath" class="path-input" placeholder="Click Browse to select a folder..." readonly style="-webkit-border-radius: 12px; -moz-border-radius: 12px; -ms-border-radius: 12px; border-radius: 12px;"><button class="btn btn-primary" id="browseBtn" onclick="selectFolder()" style="-webkit-border-radius: 20px; -moz-border-radius: 20px; -ms-border-radius: 20px; border-radius: 20px;">Browse</button></div><div class="button-group"><button class="btn btn-secondary" id="dirBackBtn" onclick="prevStep()" style="-webkit-border-radius: 20px; -moz-border-radius: 20px; -ms-border-radius: 20px; border-radius: 20px;">Back</button><button class="btn btn-primary" id="nextBtn" onclick="nextStep()" disabled style="-webkit-border-radius: 20px; -moz-border-radius: 20px; -ms-border-radius: 20px; border-radius: 20px;">Install</button></div></div>' + String.fromCharCode(10) +
+'<div id="installing-step" class="step"><h2>Installing</h2><p style="margin-bottom: 20px;">Please wait while the files are being extracted.</p><div class="progress-container"><div class="progress-bar"><div id="progressFill" class="progress-fill"></div></div><p id="progressText" class="progress-text">Initializing...</p></div><p style="text-align: center; color: #666; margin-top: 16px; font-size: 0.9em; font-style: italic;">This may take a few moments depending on file size.</p></div>' + String.fromCharCode(10) +
+'<div id="complete-step" class="step"><h2>Installation Complete</h2><div class="success-icon">✓</div><p style="text-align: center; margin-bottom: 20px; font-size: 1em; color: #333;">All files have been successfully installed to:</p><p class="install-path" id="finalPath" style="-webkit-border-radius: 12px; -moz-border-radius: 12px; -ms-border-radius: 12px; border-radius: 12px;"></p><div class="button-group" style="justify-content: center; margin-top: 30px;"><button class="btn btn-success" onclick="openFolder()" style="-webkit-border-radius: 20px; -moz-border-radius: 20px; -ms-border-radius: 20px; border-radius: 20px;">Open Folder</button><button class="btn btn-primary" onclick="closeInstaller()" style="-webkit-border-radius: 20px; -moz-border-radius: 20px; -ms-border-radius: 20px; border-radius: 20px;">Finish</button></div></div>' + String.fromCharCode(10) +
+'<div id="error-step" class="step"><h2>Installation Failed</h2><div class="error-icon">✗</div><p id="errorMessage" style="text-align: center; color: #721c24; font-weight: 400; margin: 20px 0; padding: 15px; background: #f8d7da; -webkit-border-radius: 12px; -moz-border-radius: 12px; -ms-border-radius: 12px; border-radius: 12px; border: 1px solid #f5c6cb; font-size: 0.9em;"></p><div style="text-align: center; margin-top: 30px;"><button class="btn btn-primary" onclick="showStep(1)" style="-webkit-border-radius: 20px; -moz-border-radius: 20px; -ms-border-radius: 20px; border-radius: 20px;">Try Again</button></div></div>' + String.fromCharCode(10) +
 '</div></div></div>' + String.fromCharCode(10) +
 '<script>' + String.fromCharCode(10) +
 'window.onerror = function(msg, url, line) {' + String.fromCharCode(10) +
@@ -377,14 +376,19 @@ function generateGUIHTML() {
 '    var centerX = (screen.availWidth / 2) - 450;' + String.fromCharCode(10) +
 '    var centerY = (screen.availHeight / 2) - 350;' + String.fromCharCode(10) +
 '    window.moveTo(centerX, centerY);' + String.fromCharCode(10) +
+'    document.body.style.backgroundColor = "transparent";' + String.fromCharCode(10) +
 '  } catch (e) {}' + String.fromCharCode(10) +
 '})();' + String.fromCharCode(10) +
+'// Window dragging works with native title bar' + String.fromCharCode(10) +
 'window.onload = function() {' + String.fromCharCode(10) +
 '  try {' + String.fromCharCode(10) +
 '    window.resizeTo(900, 700);' + String.fromCharCode(10) +
 '    var centerX = (screen.availWidth / 2) - 450;' + String.fromCharCode(10) +
 '    var centerY = (screen.availHeight / 2) - 350;' + String.fromCharCode(10) +
 '    window.moveTo(centerX, centerY);' + String.fromCharCode(10) +
+'    document.body.style.background = "#6B73D9";' + String.fromCharCode(10) +
+'    var container = document.querySelector(".container");' + String.fromCharCode(10) +
+'    if (container) container.style.background = "#6B73D9";' + String.fromCharCode(10) +
 '  } catch (e) {}' + String.fromCharCode(10) +
 '};' + String.fromCharCode(10) +
 'var currentStep = 0;' + String.fromCharCode(10) +
