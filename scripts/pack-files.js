@@ -158,8 +158,34 @@ class FilePacker {
     // Read and base64 encode the archive to embed it
     console.log("🔐 Encoding archive for embedding...");
     const archiveBuffer = fs.readFileSync(archivePath);
-    const archiveBase64 = archiveBuffer.toString("base64");
     const archiveSize = archiveBuffer.length;
+    
+    // Check archive size before base64 encoding
+    // JavaScript has a maximum string length of ~1GB, and base64 increases size by ~33%
+    // So we limit to ~700MB to be safe
+    const MAX_ARCHIVE_SIZE = 700 * 1024 * 1024; // 700MB
+    if (archiveSize > MAX_ARCHIVE_SIZE) {
+      const sizeMB = (archiveSize / (1024 * 1024)).toFixed(2);
+      const maxMB = (MAX_ARCHIVE_SIZE / (1024 * 1024)).toFixed(0);
+      throw new Error(
+        `Archive is too large (${sizeMB} MB). Maximum supported size is ${maxMB} MB.\n` +
+        `Please reduce the size of your files or split them into multiple installers.`
+      );
+    }
+    
+    let archiveBase64;
+    try {
+      archiveBase64 = archiveBuffer.toString("base64");
+    } catch (error) {
+      if (error.message && error.message.includes("Invalid string length")) {
+        const sizeMB = (archiveSize / (1024 * 1024)).toFixed(2);
+        throw new Error(
+          `Archive is too large (${sizeMB} MB) to embed in the installer.\n` +
+          `JavaScript cannot handle strings this large. Please reduce the size of your files or split them into multiple installers.`
+        );
+      }
+      throw error;
+    }
     
     console.log("📦 Archive encoded, base64 length:", archiveBase64.length);
     console.log("📦 Archive size:", archiveSize, "bytes");
@@ -496,6 +522,22 @@ class FilePacker {
       .trim();
 
     const outputPath = path.join(this.config.outputDir, sanitizedOutputName);
+    const absoluteOutputPath = path.resolve(process.cwd(), outputPath);
+    
+    // Check if output path is a UNC path (network drive)
+    // pkg cannot write directly to UNC paths, so we need to write to a local temp location first
+    const isUncPath = absoluteOutputPath.startsWith('\\\\') || absoluteOutputPath.startsWith('//');
+    let tempOutputPath = absoluteOutputPath;
+    let finalOutputPath = absoluteOutputPath;
+    
+    if (isUncPath) {
+      // Use local temp directory for pkg to write to
+      const tempFileName = `${sanitizedOutputName}-${Date.now()}.exe`;
+      tempOutputPath = path.join(os.tmpdir(), tempFileName);
+      console.log('📡 Network drive detected. Writing to local temp location first...');
+      console.log(`   Temp location: ${tempOutputPath}`);
+      console.log(`   Final location: ${finalOutputPath}`);
+    }
 
     // Build pkg command with enhanced options
     // Note: Using package.json in tempDir to ensure proper configuration
@@ -508,7 +550,7 @@ class FilePacker {
       "pkg",
       extractorFileName,  // Use just filename since we'll run from tempDir
       "--output",
-      path.resolve(originalCwd, outputPath),  // Use absolute path for output
+      tempOutputPath,  // Use temp path (local) for pkg to write to
       "--target",
       "node18-win-x64",
       "--compress",
@@ -531,6 +573,7 @@ class FilePacker {
 
     // Package the extractor with pkg
     const pkgSpinner = ora("📦 Creating executable...").start();
+    let localPkgTempDir = null; // Declare outside try block for cleanup in finally
     try {
       // Create a .pkgignore file to prevent pkg from including the original template file
       // This ensures pkg only bundles extractor.js and doesn't include any external files
@@ -547,17 +590,75 @@ class FilePacker {
       fs.writeFileSync(pkgIgnorePath, ignorePatterns.join('\n') + '\n');
       console.log('Created .pkgignore to exclude template file');
       
-      console.log(`\n🔧 Running: ${pkgCommand.join(" ")}`);
-      // Run pkg from temp directory so it can find package.json and extractor.js
-      process.chdir(tempDir);
+      // Verify extractor file exists
+      if (!fs.existsSync(extractorPath)) {
+        throw new Error(`Extractor file not found: ${extractorPath}`);
+      }
+      console.log(`✅ Extractor file verified: ${extractorPath}`);
+      
+      // Check if pkg is available
       try {
-        // Build command using relative path from tempDir
-        // Use --no-bytecode to avoid Babel parse errors and ensure string replacements are preserved
-        const pkgCmd = [
+        const pkgVersion = execSync("pkg --version", { 
+          stdio: "pipe",
+          encoding: "utf8"
+        }).trim();
+        console.log(`✅ pkg version: ${pkgVersion}`);
+      } catch (pkgCheckError) {
+        throw new Error(
+          "pkg is not installed or not found in PATH. " +
+          "Please install it with: npm install -g pkg"
+        );
+      }
+      
+      // Check if tempDir is on a network drive - if so, copy files to local temp and run from there
+      const isTempDirUnc = tempDir.startsWith('\\\\') || tempDir.startsWith('//');
+      let pkgWorkingDir = tempDir;
+      
+      if (isTempDirUnc) {
+        // Create a local temp directory for pkg to work from
+        localPkgTempDir = path.join(os.tmpdir(), `pkg-work-${Date.now()}`);
+        fs.mkdirSync(localPkgTempDir, { recursive: true });
+        console.log(`📡 Network drive detected for working directory. Using local temp: ${localPkgTempDir}`);
+        
+        // Copy necessary files to local temp directory
+        const filesToCopy = [
+          { src: extractorPath, dest: path.join(localPkgTempDir, extractorFileName) },
+          { src: path.join(tempDir, 'package.json'), dest: path.join(localPkgTempDir, 'package.json') },
+          { src: path.join(tempDir, '.pkgignore'), dest: path.join(localPkgTempDir, '.pkgignore') }
+        ];
+        
+        for (const file of filesToCopy) {
+          if (fs.existsSync(file.src)) {
+            fs.copyFileSync(file.src, file.dest);
+            console.log(`   Copied: ${path.basename(file.src)}`);
+          }
+        }
+        
+        pkgWorkingDir = localPkgTempDir;
+      }
+      
+      console.log(`\n🔧 Running pkg from: ${pkgWorkingDir}`);
+      console.log(`   Extractor: ${extractorFileName}`);
+      console.log(`   Output: ${tempOutputPath}`);
+      
+      // Run pkg from working directory
+      const originalCwdForPkg = process.cwd();
+      process.chdir(pkgWorkingDir);
+      try {
+        // Build command using relative path from pkgWorkingDir
+        // Quote paths that might contain spaces
+        const quotePath = (p) => {
+          if (p.includes(' ') || p.includes('"')) {
+            return `"${p.replace(/"/g, '\\"')}"`;
+          }
+          return p;
+        };
+        
+        const pkgCmdParts = [
           "pkg",
-          extractorFileName,  // Relative to tempDir
+          extractorFileName,  // Relative to pkgWorkingDir
           "--output",
-          path.resolve(originalCwd, outputPath),
+          quotePath(tempOutputPath),  // Use temp path (local) for pkg
           "--target",
           "node18-win-x64",
           "--compress",
@@ -565,49 +666,93 @@ class FilePacker {
           "--options",
           "max_old_space_size=4096",
         ];
-        execSync(pkgCmd.join(" "), { stdio: "inherit" });
+        
+        const pkgCmd = pkgCmdParts.join(' ');
+        
+        try {
+          // Capture output to get better error messages
+          let pkgOutput = '';
+          let pkgError = '';
+          try {
+            pkgOutput = execSync(pkgCmd, { 
+              stdio: "pipe",
+              cwd: pkgWorkingDir,
+              env: process.env,
+              encoding: 'utf8'
+            });
+            // If successful, output might be empty, so show it anyway
+            if (pkgOutput) {
+              console.log(pkgOutput);
+            }
+          } catch (pkgExecError) {
+            pkgError = pkgExecError.stderr ? pkgExecError.stderr.toString() : '';
+            pkgOutput = pkgExecError.stdout ? pkgExecError.stdout.toString() : '';
+            
+            // Show the error output
+            if (pkgError) {
+              console.error('pkg stderr:', pkgError);
+            }
+            if (pkgOutput) {
+              console.log('pkg stdout:', pkgOutput);
+            }
+            
+            const errorMsg = pkgExecError.message || String(pkgExecError);
+            let detailedError = `pkg command failed:\n  Command: ${pkgCmd}\n`;
+            if (pkgError) detailedError += `  Error: ${pkgError}\n`;
+            if (pkgOutput) detailedError += `  Output: ${pkgOutput}\n`;
+            detailedError += `  Message: ${errorMsg}\n`;
+            detailedError += `  Working directory: ${pkgWorkingDir}\n`;
+            detailedError += `  Extractor file exists: ${fs.existsSync(path.join(pkgWorkingDir, extractorFileName))}`;
+            
+            throw new Error(detailedError);
+          }
+        } catch (pkgError) {
+          // Re-throw with context
+          throw pkgError;
+        }
         
         // Small delay to ensure file is fully written and not locked
         await new Promise(resolve => setTimeout(resolve, 1000));
         
+        // Determine the executable path (pkg adds .exe extension automatically)
+        let executablePath = tempOutputPath;
+        if (!executablePath.endsWith('.exe')) {
+          executablePath += '.exe';
+        }
+        
         // Convert executable from console to windowed application (hide console window)
         // Use rcedit to change subsystem from CONSOLE to WINDOWS
         if (process.platform === 'win32') {
-          // Ensure we have absolute path - pkg adds .exe extension automatically
-          let absoluteOutputPath = path.resolve(originalCwd, outputPath);
-          if (!absoluteOutputPath.endsWith('.exe')) {
-            absoluteOutputPath += '.exe';
-          }
           
-          console.log('Looking for executable at:', absoluteOutputPath);
-          console.log('File exists:', fs.existsSync(absoluteOutputPath));
+          console.log('Looking for executable at:', executablePath);
+          console.log('File exists:', fs.existsSync(executablePath));
           
-          if (!fs.existsSync(absoluteOutputPath)) {
-            console.warn('⚠️  Warning: Executable not found at:', absoluteOutputPath);
+          if (!fs.existsSync(executablePath)) {
+            console.warn('⚠️  Warning: Executable not found at:', executablePath);
             console.warn('Trying alternative paths...');
             // Try without .exe extension
-            const altPath = absoluteOutputPath.replace(/\.exe$/, '');
+            const altPath = executablePath.replace(/\.exe$/, '');
             if (fs.existsSync(altPath)) {
-              absoluteOutputPath = altPath;
-              console.log('Found executable at:', absoluteOutputPath);
+              executablePath = altPath;
+              console.log('Found executable at:', executablePath);
             } else {
               console.warn('Cannot modify subsystem. Console window will appear.');
-              console.warn('Searched paths:', [absoluteOutputPath, altPath]);
+              console.warn('Searched paths:', [executablePath, altPath]);
             }
           }
           
-          if (fs.existsSync(absoluteOutputPath)) {
+          if (fs.existsSync(executablePath)) {
             pkgSpinner.text = '🔧 Converting to windowed application...';
             let subsystemChanged = false;
             
-            console.log('Modifying executable subsystem:', absoluteOutputPath);
-            console.log('File size:', fs.statSync(absoluteOutputPath).size, 'bytes');
+            console.log('Modifying executable subsystem:', executablePath);
+            console.log('File size:', fs.statSync(executablePath).size, 'bytes');
             
             // Method 1: Try PowerShell PE header modification (most reliable)
             try {
               console.log('Using PowerShell to modify PE header...');
                 const psScript = `
-$filePath = "${absoluteOutputPath.replace(/\\/g, '\\\\')}"
+$filePath = "${executablePath.replace(/\\/g, '\\\\')}"
 try {
   $bytes = [System.IO.File]::ReadAllBytes($filePath)
   $peOffset = [BitConverter]::ToInt32($bytes, 60)
@@ -651,7 +796,7 @@ try {
                 console.log('Trying rcedit as fallback...');
                 try {
                   const rcedit = require('rcedit');
-                  await rcedit(absoluteOutputPath, {
+                  await rcedit(executablePath, {
                     'set-subsystem': 'windows'
                   });
                   subsystemChanged = true;
@@ -669,7 +814,7 @@ try {
               await new Promise(resolve => setTimeout(resolve, 200));
               try {
                 const verifyScript = `
-$filePath = "${absoluteOutputPath.replace(/\\/g, '\\\\')}"
+$filePath = "${executablePath.replace(/\\/g, '\\\\')}"
 $bytes = [System.IO.File]::ReadAllBytes($filePath)
 $peOffset = [BitConverter]::ToInt32($bytes, 60)
 $subsystemOffset = $peOffset + 92
@@ -699,9 +844,54 @@ if ($subsystem -eq 2) {
             }
           }
         }
+        
+        // If we wrote to a temp location (UNC path), copy to final network location
+        if (isUncPath && fs.existsSync(executablePath)) {
+          pkgSpinner.text = '📡 Copying to network location...';
+          console.log(`\n📡 Copying executable to network location...`);
+          console.log(`   From: ${executablePath}`);
+          
+          // Ensure final output path has .exe extension
+          if (!finalOutputPath.endsWith('.exe')) {
+            finalOutputPath += '.exe';
+          }
+          
+          console.log(`   To: ${finalOutputPath}`);
+          
+          // Ensure the destination directory exists
+          const finalDir = path.dirname(finalOutputPath);
+          if (!fs.existsSync(finalDir)) {
+            fs.mkdirSync(finalDir, { recursive: true });
+          }
+          
+          // Copy the file
+          fs.copyFileSync(executablePath, finalOutputPath);
+          console.log('✅ Successfully copied to network location');
+          
+          // Clean up temp file
+          try {
+            fs.unlinkSync(executablePath);
+            console.log('🧹 Cleaned up temp file');
+          } catch (cleanupError) {
+            console.warn('⚠️  Warning: Could not delete temp file:', cleanupError.message);
+          }
+          
+          // Update executablePath for branding/return value
+          executablePath = finalOutputPath;
+        }
       } finally {
         // Restore original working directory
         process.chdir(originalCwd);
+        
+        // Clean up local temp directory if we created one
+        if (localPkgTempDir && fs.existsSync(localPkgTempDir)) {
+          try {
+            fs.rmSync(localPkgTempDir, { recursive: true, force: true });
+            console.log('🧹 Cleaned up local pkg temp directory');
+          } catch (cleanupError) {
+            console.warn('⚠️  Warning: Could not delete local pkg temp directory:', cleanupError.message);
+          }
+        }
       }
       
       pkgSpinner.succeed("✅ Executable created successfully");
@@ -712,7 +902,8 @@ if ($subsystem -eq 2) {
 
     // Post-process the executable if needed
     if (this.config.branding) {
-      await this.applyBranding(outputPath);
+      const brandingPath = isUncPath ? finalOutputPath : outputPath;
+      await this.applyBranding(brandingPath);
     }
   }
 
